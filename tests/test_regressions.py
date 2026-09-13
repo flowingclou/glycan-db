@@ -15,6 +15,7 @@
 import pathlib
 import sys
 import traceback
+import importlib.util
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -23,6 +24,15 @@ if str(ROOT) not in sys.path:
 from glycan_etl import core                      # noqa: E402
 from glycan_etl import table_parser as tp        # noqa: E402
 from glycan_etl import glycoct as gx             # noqa: E402
+
+
+def _load_batch_etl():
+    """加载 pipelines/batch_etl.py（不在 glycan_etl 包内，用显式路径加载）。"""
+    spec = importlib.util.spec_from_file_location(
+        "batch_etl_under_test", str(ROOT / "pipelines" / "batch_etl.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def _poly(iupac, doi, residues):
@@ -301,6 +311,19 @@ def test_extract_linkage_sequence_ignores_caption():
     """图注 'The (A) main chain, (B) branched-chain ...' 不得被当成结论句。"""
     assert tp.extract_linkage_sequence(
         "Fig. 3. The (A) main chain, (B) branched-chain, and (C) model of SPR-1.") == []
+
+
+# ---------------------------------------------------------------------------
+# 7. 解析出 0 条时的原因分类（区分"文献类型不适用"与"解析未覆盖"）
+# ---------------------------------------------------------------------------
+def test_explain_zero_records():
+    be = _load_batch_etl()
+    f = be.explain_zero_records
+    assert "扫描件" in f("")
+    assert "非结构表征" in f("Molecular dynamics simulation of beta-glucan.")
+    assert "无位移数值表" in f("The NMR spectra were computed for this model.")
+    shifts = "chemical shift assignments " + " ".join(f"{3.0 + i * 0.11:.2f}" for i in range(30))
+    assert "未解析成功" in f(shifts)
 
 
 # ---------------------------------------------------------------------------

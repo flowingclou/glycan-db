@@ -141,6 +141,8 @@ DETECT_CFG = {
     # （甲基化表、位移归属表）常排在第 6~10 页，只读前 5 页会误判为
     # 行内型，进而触发"先跑行内、失败再跑表格"的双跑回退。
     "deep_head_pages": 12,
+    # 解析出 0 条时，为判定原因而读取的页数（要覆盖全文才看得准）
+    "deep_zero_pages": 30,
     # 表格型特征
     "table_caption_re": r"(?m)^\s*Table\s+\d+[\.:\s]",
     "ppm_token_re": r"\d+\.\d+",
@@ -418,6 +420,28 @@ def dispatch_pdf(gle, pdf_path, doi, journal, year):
 # ---------------------------------------------------------------------------
 # 报告生成
 # ---------------------------------------------------------------------------
+def explain_zero_records(text: str) -> str:
+    """解析出 0 条时给出原因分类。
+
+    区分"这份文献本来就不含结构表征数据"（分子模拟/机理/综述类）与
+    "含数据但当前解析未覆盖"—— 前者无需处理，后者才值得投入改进。
+    旧报告对两者都只说"请检查文本层质量或结构写法"，把用户引向错误方向。
+    """
+    if not text:
+        return "无文本层（可能为扫描件，需先 OCR）"
+    shift_vals = re.findall(r"\b\d{1,3}\.\d{1,2}\b", text)
+    has_shift_head = bool(re.search(r"chemical\s*shift|δ\s*\d|ppm", text, re.I))
+    has_nmr = bool(re.search(r"\bNMR\b", text))
+    if has_shift_head and len(shift_vals) >= 20:
+        return ("含位移/化学位移数据但未解析成功（版式或写法未覆盖，"
+                "建议反馈该样本）")
+    if has_nmr:
+        return "提及 NMR 但无位移数值表（多为分子模拟/机理/综述类，非结构表征）"
+    if len(shift_vals) < 10:
+        return "无化学位移数据（非结构表征类文献，如分子模拟/机理研究）"
+    return "有数值但未识别为结构表征（版式未覆盖，建议反馈该样本）"
+
+
 def dump_report(items, out_dir):
     """items: list of dict（每份 PDF 一行的汇总）。返回 (csv_path, md_path)。"""
     os.makedirs(out_dir, exist_ok=True)
@@ -454,7 +478,9 @@ def dump_report(items, out_dir):
             f"{it['qc_issues'] or '-'} | {(it['detail'] or '-')[:120]} |"
         )
     lines.append("")
-    lines.append("> 0 条的 PDF 请优先检查文本层质量或结构写法；详细 JSON 见同目录 *_records.json")
+    lines.append("> 0 条的 PDF 请先看「明细」列的原因分类：")
+    lines.append("> - 标注「非结构表征类文献」→ 该文献本就不含结构-谱图数据，无需处理；")
+    lines.append("> - 标注「未解析成功 / 版式未覆盖」→ 才是需要改进的样本，建议反馈。")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     return csv_path, md_path
@@ -540,6 +566,10 @@ def main():
         issues = "; ".join(" | ".join(r.qc_notes) for r in records if r.qc_notes)
         detail = ", ".join(f"{r.iupac_short}({r.sugar_type},{len(r.experiments)}exp)"
                            for r in records)
+        if not records:
+            # 0 条时说明原因：是"文献类型不适用"还是"解析未覆盖"
+            detail = explain_zero_records(
+                peek_pdf_text(pdf, head_pages=DETECT_CFG["deep_zero_pages"]) or "")
         items.append({
             "file": pdf, "mode": mode, "records": len(records), "flagged": flagged,
             "passed": passed, "types": types, "qc_issues": issues[:400], "detail": detail,
