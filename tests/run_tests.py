@@ -4,7 +4,8 @@
 功能:
   1) 递归 py_compile 校验仓库内所有 .py 脚本;
   2) 运行 `tests/test_regressions.py` 回归测试（防回退，不依赖数据库）;
-  3) 运行 `pipelines/batch_etl.py --self-test` 验证解析引擎与批量管道可用。
+  3) 运行 `tests/test_domain_and_consistency.py`（域级结论抽取 + 交叉一致性校验）;
+  4) 运行 `pipelines/batch_etl.py --self-test` 验证解析引擎与批量管道可用。
 
 用法:
   python3 tests/run_tests.py
@@ -48,8 +49,8 @@ def run_self_test():
     return True
 
 
-def run_regressions():
-    script = ROOT / "tests" / "test_regressions.py"
+def _run_test_script(name):
+    script = ROOT / "tests" / name
     proc = subprocess.run(
         [sys.executable, str(script)],
         capture_output=True,
@@ -62,18 +63,32 @@ def run_regressions():
     return True
 
 
+def run_regressions():
+    return _run_test_script("test_regressions.py")
+
+
+def run_domain_consistency():
+    return _run_test_script("test_domain_and_consistency.py")
+
+
 def main() -> int:
-    print("== 1/3  py_compile 全仓校验 ==")
+    print("== 1/4  py_compile 全仓校验 ==")
     py_files = compile_all()
     print(f"OK: {len(py_files)} 个 .py 文件全部编译通过\n")
 
-    print("== 2/3  回归测试（防回退） ==")
+    print("== 2/4  回归测试（防回退） ==")
     if not run_regressions():
         print("回归测试失败", file=sys.stderr)
         return 1
     print("回归测试通过\n")
 
-    print("== 3/3  batch_etl --self-test ==")
+    print("== 3/4  域级结论 + 交叉一致性校验 ==")
+    if not run_domain_consistency():
+        print("域级/一致性测试失败", file=sys.stderr)
+        return 1
+    print("域级/一致性测试通过\n")
+
+    print("== 4/4  batch_etl --self-test ==")
     if not run_self_test():
         print("自检失败", file=sys.stderr)
         return 1
