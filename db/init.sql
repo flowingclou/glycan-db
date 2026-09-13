@@ -62,9 +62,14 @@ CREATE INDEX IF NOT EXISTS idx_sugars_type ON sugars(sugar_type);
 -- 定义与 migrations/v005_structure_level.sql 完全一致（幂等）。
 ALTER TABLE sugars
     ADD COLUMN IF NOT EXISTS structure_level TEXT
-    CHECK (structure_level IN ('complete', 'repeat_unit', 'composition_only'));
+    CHECK (structure_level IN ('complete', 'repeat_unit', 'domain_only',
+                               'composition_only'));
 ALTER TABLE sugars
     ADD COLUMN IF NOT EXISTS composition TEXT;
+
+-- V6 列（域级骨架）同样提前声明；定义与 migrations/v006_domain_level.sql 一致。
+ALTER TABLE sugars
+    ADD COLUMN IF NOT EXISTS domain_architecture JSONB;
 
 -- 1.3 谱图实验记录（MVP 裁剪版）
 CREATE TABLE IF NOT EXISTS nmr_experiments (
@@ -652,8 +657,40 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_exp_sugar_source_type_solvent
 -- ============================================================================
 -- 背景(P0-1): GlycoCT 只能表达确定结构。文献里的多糖常只给出甲基化/组成
 -- 信息, 残基间连接顺序未知, 硬生成 GlycoCT 等于伪造。故显式记录结构表达到
--- 什么程度: complete / repeat_unit / composition_only, 供下游决定能否结构比对。
+-- 什么程度: complete / repeat_unit / domain_only / composition_only, 供下游决定能否结构比对。
 -- ============================================================================
 
 CREATE INDEX IF NOT EXISTS idx_sugars_structure_level ON sugars(structure_level);
 CREATE INDEX IF NOT EXISTS idx_sugars_composition     ON sugars(composition);
+
+-- ----------------------------------------------------------------------------
+-- 来源: migrations/v006_domain_level.sql
+--   domain_only —— 只给出域级骨架（如"主链为 HG 域 + 少量带侧链的 RG-I 域"），
+--   残基间顺序未知，不生成 GlycoCT，结构信息在 domain_architecture。
+--   这类结论句不含 '→'，旧版管线会整条丢弃并降级为 composition_only。
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+    cname TEXT;
+BEGIN
+    SELECT con.conname INTO cname
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_attribute att ON att.attrelid = rel.oid AND att.attnum = ANY (con.conkey)
+    WHERE rel.relname = 'sugars'
+      AND con.contype = 'c'
+      AND att.attname = 'structure_level'
+    LIMIT 1;
+
+    IF cname IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE sugars DROP CONSTRAINT %I', cname);
+    END IF;
+
+    ALTER TABLE sugars
+        ADD CONSTRAINT sugars_structure_level_check
+        CHECK (structure_level IN ('complete', 'repeat_unit', 'domain_only',
+                                   'composition_only'));
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_sugars_domain_arch
+    ON sugars USING gin (domain_architecture);

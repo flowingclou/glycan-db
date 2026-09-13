@@ -230,10 +230,14 @@ class GlycanRecord:
     experiments: List[NMRExperiment] = field(default_factory=list)
     qc_notes: List[str] = field(default_factory=list)
     qc_status: str = "pending"
-    # 结构表达等级（P0-1）: complete / repeat_unit / composition_only
+    # 结构表达等级: complete / repeat_unit / domain_only / composition_only
     structure_level: Optional[str] = None
     # 残基组成式，如 "GalA6,Gal3,Ara3"（无法生成完整 GlycoCT 时的主要结构信息）
     composition: Optional[str] = None
+    # 域级骨架（structure_level='domain_only' 时）：{"domains": [...], "evidence": ...}
+    domain_architecture: Optional[dict] = None
+    # 交叉一致性校验发现（glycan_etl.consistency），便于落库后回溯
+    consistency_findings: List[dict] = field(default_factory=list)
 
 
 # ============================================================================
@@ -780,6 +784,22 @@ def _structure_signature(rec: GlycanRecord) -> str:
     return "|".join(parts)
 
 
+def _domain_only_key(rec: GlycanRecord) -> str:
+    """域级骨架记录的确定性去重键。
+
+    与 ``_structure_signature`` 的区别：只用**域架构 + 糖名**，不含残基表与
+    分子式 —— 这两个字段最容易随解析器改进而漂移，domain_only 记录若用它们
+    做键，解析升级后会变成孤行。
+    """
+    arch = rec.domain_architecture or {}
+    parts = [rec.sugar_type or "?",
+             (rec.iupac_short or "?").strip().lower(),
+             ",".join(f"{d.get('name')}:{d.get('quantity')}:{int(bool(d.get('side_chains')))}"
+                      for d in arch.get("domains", []))]
+    digest = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+    return f"DOMAIN:{rec.sugar_type or 'unknown'}:{(rec.doi or 'UNKNOWN').strip() or 'UNKNOWN'}:{digest}"
+
+
 def resolve_glycoct(rec: GlycanRecord) -> str:
     """返回入库用的结构编码；解析不出 GlycoCT 时生成**确定性占位符**。
 
@@ -791,6 +811,8 @@ def resolve_glycoct(rec: GlycanRecord) -> str:
     """
     if rec.glycoct and rec.glycoct.strip():
         return rec.glycoct.strip()
+    if getattr(rec, "structure_level", None) == "domain_only":
+        return _domain_only_key(rec)
     digest = hashlib.sha256(_structure_signature(rec).encode("utf-8")).hexdigest()[:16]
     doi = (rec.doi or "UNKNOWN").strip() or "UNKNOWN"
     return f"UNRESOLVED:{rec.sugar_type or 'unknown'}:{doi}:{digest}"
@@ -834,7 +856,10 @@ def insert_record(conn, rec: GlycanRecord) -> None:
     placeholders = ["%s", "%s", "encode(digest(%s,'sha256'),'hex')", "%s", "%s",
                     "%s", "%s", "%s", "%s", "%s"]
     for col, val in (("structure_level", getattr(rec, "structure_level", None)),
-                     ("composition", getattr(rec, "composition", None))):
+                     ("composition", getattr(rec, "composition", None)),
+                     ("domain_architecture",
+                      json.dumps(getattr(rec, "domain_architecture", None), ensure_ascii=False)
+                      if getattr(rec, "domain_architecture", None) else None)):
         if col in sugar_cols:
             cols.append(col)
             vals.append(val)
@@ -855,6 +880,10 @@ def insert_record(conn, rec: GlycanRecord) -> None:
     if "composition" in sugar_cols:
         set_clauses.append(
             "composition = COALESCE(EXCLUDED.composition, sugars.composition)")
+    if "domain_architecture" in sugar_cols:
+        set_clauses.append(
+            "domain_architecture = COALESCE(EXCLUDED.domain_architecture, "
+            "sugars.domain_architecture)")
 
     cur.execute(
         f"INSERT INTO sugars ({', '.join(cols)}) VALUES ({', '.join(placeholders)}) "

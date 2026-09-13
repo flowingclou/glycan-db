@@ -31,7 +31,14 @@ GlycoCT 只能表达**确定结构**。文献里大量多糖只给出甲基化/�
 
 * ``complete``          —— 单糖 / 寡糖，连接明确，生成完整 GlycoCT
 * ``repeat_unit``       —— 单一重复单元多糖，生成一个重复单元的 GlycoCT
+* ``domain_only``       —— 只给出**域级骨架**（如"主链为 HG 域 + 少量带侧链的 RG-I 域"），
+                          残基到残基的顺序未知，**不生成 GlycoCT**，改给 domain_architecture
 * ``composition_only``  —— 仅有残基组成，**不生成 GlycoCT**，改给组成式
+
+`domain_only` 是 2025-09 新增的一档：很多多糖文献（尤其果胶类）只在正文写一句
+"主链由大量 HG 域与少量带侧链的 RG-I 域组成"，既没有逐残基连接式，也不只是组成
+百分比。硬塞进 composition_only 会丢掉"主链是什么、侧链挂在哪个域上"这一层信息；
+硬生成 GlycoCT 又是伪造。因此单独设一档，携带结构化域架构。
 
 下游可据此判断一条记录到底"能比对到什么程度"。
 
@@ -41,6 +48,7 @@ glypy 仅用于**校验**生成结果，缺失时不影响生成功能。
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -135,10 +143,127 @@ def _composition_only(residues: Sequence[Any], warnings: List[str]) -> Dict[str,
     }
 
 
+# ---------------------------------------------------------------------------
+# 域级骨架（domain_only）：从正文结论句抽取"主链是哪个域、侧链挂在哪"
+# ---------------------------------------------------------------------------
+# 果胶类多糖的标准域名词（HG / RG-I / RG-II / XGA 等），文献里几乎只用这些写法。
+DOMAIN_ALIASES: Dict[str, str] = {
+    "hg": "HG", "homogalacturonan": "HG", "homogalacturonans": "HG",
+    "rg-i": "RG-I", "rgi": "RG-I", "rg-1": "RG-I", "rg1": "RG-I",
+    "rhamnogalacturonan-i": "RG-I", "rhamnogalacturonan i": "RG-I",
+    "rg-ii": "RG-II", "rgii": "RG-II", "rg-2": "RG-II", "rg2": "RG-II",
+    "rhamnogalacturonan-ii": "RG-II", "rhamnogalacturonan ii": "RG-II",
+    "xga": "XGA", "xylogalacturonan": "XGA",
+    "aga": "AGA", "arabinogalactan": "AG", "ag": "AG",
+    "arabinogalactan-i": "AG-I", "arabinogalactan-ii": "AG-II",
+    "arabinan": "arabinan", "arabinan domain": "arabinan",
+    "galactan": "galactan", "galacturonan": "galacturonan",
+}
+
+# "composed of ... HG domains ..." 类结论句：必须有域名词才算命中
+RE_DOMAIN_SENTENCE = re.compile(
+    r"([^.]{0,160}?\b(?:composed\s+of|consists?\s+of|comprising|"
+    r"mainly\s+composed\s+of|dominated\s+by)[^.]{0,200}?"
+    r"\b(?:hg|homogalacturonan|rg[\s\-]?(?:i{1,2}|[12])|xga|"
+    r"rhamnogalacturonan[\s\-]?(?:i{1,2}|[12])|arabinogalactan|"
+    r"arabinan|galactan)\b[^.]{0,200})", re.I)
+
+RE_DOMAIN_TOKEN = re.compile(
+    r"\b(?P<qty>large|small|major|minor|a\s+few|several|significant)?\s*"
+    r"(?P<name>homogalacturonan|rhamnogalacturonan[\s\-]?(?:i{1,2}|[12])|"
+    r"rg[\s\-]?(?:i{1,2}|[12])|hg|xga|arabinogalactan|arabinan|galactan)\b"
+    r"(?P<domains>\s+domains?)?", re.I)
+
+RE_QUANTITY = re.compile(
+    r"\b(large\s+(?:number|amount)\s+of|small\s+(?:number|amount)\s+of|"
+    r"major|minor|a\s+few|several|significant\s+amount\s+of)\b", re.I)
+
+
+def _canon_domain(name: str) -> str:
+    key = re.sub(r"\s+", " ", (name or "").strip().lower())
+    key = key.replace("–", "-").replace("—", "-")
+    if key in DOMAIN_ALIASES:
+        return DOMAIN_ALIASES[key]
+    # "rhamnogalacturonan i" / "rg i" 这类带空格或罗马数字的写法
+    key2 = re.sub(r"[\s\-]+", "-", key)
+    if key2 in DOMAIN_ALIASES:
+        return DOMAIN_ALIASES[key2]
+    key3 = key2.replace("-", "")
+    if key3 in DOMAIN_ALIASES:
+        return DOMAIN_ALIASES[key3]
+    return name.strip()
+
+
+def extract_domain_architecture(text: str) -> Dict[str, Any]:
+    """从正文抽取**域级骨架**结论，如：
+
+        "HP is mainly composed of a large number of HG domains and a
+         small number of RG-I domains with side chains."
+
+    → ``{"domains": [{"name": "HG", "quantity": "large", "side_chains": False},
+                     {"name": "RG-I", "quantity": "small", "side_chains": True}],
+         "evidence": "<原句>", "source": "text_conclusion"}``
+
+    为什么需要这一档：很多多糖文献（尤其果胶）既不给逐残基连接式，也不只是
+    组成百分比，而是给一句域级结论。这类句子不含 '→'，因此
+    :func:`table_parser.extract_linkage_sequence` 的触发词抓不到，导致整条
+    结构信息被丢弃、记录降级为 composition_only。
+    """
+    if not text:
+        return {"domains": []}
+    t = re.sub(r"\s+", " ", text)
+    m = RE_DOMAIN_SENTENCE.search(t)
+    if not m:
+        return {"domains": []}
+    sentence = m.group(1).strip()
+    domains: List[Dict[str, Any]] = []
+    seen: set = set()
+    for dm in RE_DOMAIN_TOKEN.finditer(sentence):
+        raw = dm.group("name")
+        # 裸 "rg" 不可信（可能是别的缩写），要求带罗马数字/阿拉伯数字
+        if re.fullmatch(r"rg", raw.strip(), re.I):
+            continue
+        name = _canon_domain(raw)
+        if not name:
+            continue
+        # 左右各取一段用于判定数量词与"with side chains"
+        lo, hi = dm.start(), dm.end()
+        left = sentence[max(0, lo - 40):lo]
+        right = sentence[hi:hi + 40]
+        qty = None
+        qm = RE_QUANTITY.search(left)
+        if qm:
+            q = qm.group(1).lower()
+            qty = ("large" if q.startswith(("large", "major", "significant"))
+                   else "small" if q.startswith(("small", "minor"))
+                   else "few")
+        if qty is None:
+            qm2 = RE_QUANTITY.search(right)
+            if qm2:
+                q = qm2.group(1).lower()
+                qty = ("large" if q.startswith(("large", "major", "significant"))
+                       else "small" if q.startswith(("small", "minor")) else "few")
+            elif dm.group("qty"):
+                q = dm.group("qty").lower()
+                qty = ("large" if q.startswith(("large", "major", "significant"))
+                       else "small" if q.startswith(("small", "minor")) else "few")
+        side = bool(re.search(r"with\s+(?:side|branch)", right, re.I))
+        key = (name, qty, side)
+        if key in seen:
+            continue
+        seen.add(key)
+        domains.append({"name": name, "quantity": qty, "side_chains": side})
+    if not domains:
+        return {"domains": []}
+    return {"domains": domains, "evidence": sentence, "source": "text_conclusion"}
+
+
+
 def build_glycoct(residues: Sequence[Any],
                   sugar_type: str = "oligo",
                   chains: Optional[List[List[int]]] = None,
                   branch_links: Optional[List[Tuple[int, int, int]]] = None,
+                  domain_architecture: Optional[Dict[str, Any]] = None,
                   ) -> Dict[str, Any]:
     """从残基表生成标准 GlycoCT。
 
@@ -151,6 +276,10 @@ def build_glycoct(residues: Sequence[Any],
         顺序）。缺省时把所有残基视为一条链。多条链用于主链 + 支链。
     branch_links : 支链挂接，元素为 ``(受体残基序号, 受体位点, 供体残基序号)``，
         表示供体的异头碳连到受体的 ``O<位点>``。
+    domain_architecture : 见 :func:`extract_domain_architecture`。给出**域级骨架**
+        （如 HG 主链 + 带侧链的 RG-I）时，残基间顺序通常仍未知，此时返回
+        ``level='domain_only'`` 且 ``glycoct=None`` —— 既不伪造结构，也不把
+        域级信息压缩成纯组成式。
 
     返回
     ----
@@ -158,6 +287,18 @@ def build_glycoct(residues: Sequence[Any],
     """
     warnings: List[str] = []
     residues = list(residues)
+    if domain_architecture and domain_architecture.get("domains"):
+        names = "、".join(d["name"] for d in domain_architecture["domains"])
+        warnings.append(
+            f"仅到域级骨架（{names}），残基间连接顺序未知，不生成 GlycoCT")
+        return {
+            "glycoct": None,
+            "level": "domain_only",
+            "composition": glycan_composition(residues),
+            "domain_architecture": domain_architecture,
+            "warnings": warnings,
+            "validated": False,
+        }
     if not residues:
         return _composition_only(residues, ["无残基信息，无法生成结构编码"])
 
