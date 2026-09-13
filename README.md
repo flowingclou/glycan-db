@@ -52,11 +52,12 @@ pip install -r requirements.txt
 ### 2.3 自检
 
 ```bash
-python3 tests/run_tests.py     # py_compile + 回归测试 + 域级/一致性测试 + batch_etl --self-test
+python3 tests/run_tests.py     # py_compile + 回归 + 域级/一致性 + 硬门槛 + batch_etl --self-test
 # 或单跑
 python3 pipelines/batch_etl.py --self-test          # 输出 SELF-TEST PASS 即正常
 python3 tests/test_regressions.py                   # 31 项防回退回归测试（不依赖数据库）
-python3 tests/test_domain_and_consistency.py        # 17 项域级结论 + 交叉一致性测试
+python3 tests/test_domain_and_consistency.py        # 18 项域级结论 + 交叉一致性测试
+GLYCAN_TEST_DB=glycan_final python3 tests/test_consistency_gate.py   # 10 项硬门槛行为测试（需库）
 # 有样本 PDF 时可跑端到端（否则该用例自动跳过）:
 GLYCAN_TEST_PDF=/path/to/paper.pdf python3 tests/test_domain_and_consistency.py
 ```
@@ -109,8 +110,10 @@ glycan-db/
 │   │   │                   #   pgvector embedding 列 + HNSW 索引 + 溯源列
 │   │   ├── v005_structure_level.sql
 │   │   │                   #   结构表达等级 + 残基组成式
-│   │   └── v006_domain_level.sql
-│   │                       #   域级骨架等级 domain_only + domain_architecture
+│   │   ├── v006_domain_level.sql
+│   │   │                   #   域级骨架等级 domain_only + domain_architecture
+│   │   └── v007_consistency_gate.sql
+│   │                       #   一致性规则落库为硬门槛 + fail-closed 复核契约
 │   └── schema_design.md    # 数据库 schema 设计文档
 ├── glycan_etl/             # 解析引擎包
 │   ├── __init__.py         #   包初始化 + __version__
@@ -128,8 +131,10 @@ glycan-db/
 ├── tests/
 │   ├── run_tests.py        # 自检入口（py_compile + 回归 + 域级/一致性 + self-test）
 │   ├── test_regressions.py # 防回退回归测试（结构覆盖/命名/标题抽取）
-│   └── test_domain_and_consistency.py
-│                           # 域级结论抽取 + 交叉一致性校验回归测试
+│   ├── test_domain_and_consistency.py
+│   │                       # 域级结论抽取 + 交叉一致性校验回归测试
+│   └── test_consistency_gate.py
+│                           # 一致性硬门槛的数据库行为测试（连不上库则跳过）
 └── docs/
     ├── skill_guide.md      # glycan-etl 技能使用说明（可用即用指南）
     ├── assessment_and_optimization.md
@@ -290,6 +295,42 @@ P(46,15)≈6.7×10²³ 种，即使按同型残基可交换性保守折减仍有
 以 HP 为例，这 6 条一次性揪出 4 处论文内部矛盾：组成百分比合计仅 **93.59%**、
 **Man 只在组成表出现**（残基表里没有）、**甲基化多出 Glc**、**摘要写 α-D-galactose
 而 Table 2 实测为 β-D-Galp**。这些正是"真值库"最需要提前暴露的问题。
+
+#### 落库为硬门槛（v007）：坏数据进不来，未复核的数据默认不可采信
+
+只跑在 Python 侧是不够的 —— 手工 SQL、别的客户端、任何绕过 `batch_etl` 的写入
+都能把自相矛盾的数据塞进真值库。`db/migrations/v007_consistency_gate.sql` 把规则
+下沉到数据库，形成**两道关卡**：
+
+| 关卡 | 触发时机 | 检查内容 | 行为 |
+|---|---|---|---|
+| 一（行内） | `BEFORE INSERT/UPDATE OF sugars` | C7a 等级必须显式；C7b 声明 complete/repeat_unit 就必须有**真**结构编码（占位键不算）；C8 domain_only 必须有域架构；C10 占位键与等级自洽 | 命中 `block` → **拒绝写入**（`RAISE EXCEPTION`） |
+| 一（行内，软） | 同上 | C4 文献分子式 ↔ GlycoCT 推导分子式；C9 分子量 ↔ 分子式质量 | 记 `warn` 发现，放行 |
+| 二（跨表） | `consistency_recheck(sugar_id)` | C1/C2/C3/C6（需派生表齐备才能判定） | 记发现；无 block 才置 `consistency_ok=TRUE` |
+
+**★ fail-closed 契约**：`sugars.consistency_ok` 新记录默认 **FALSE（未复核）**，
+只有跑过 `consistency_recheck()` 且无 block 级问题才置 TRUE。下游查询应带
+`WHERE consistency_ok` —— 未经复核的数据默认**不可采信**，而不是默认可信。
+结构（glycoct / structure_level / domain_architecture）一旦改动会自动退回未复核。
+
+严重度可配置，DBA 无需改代码即可调整：
+
+```sql
+-- 迁移期想放行历史数据，可临时把某条规则降级
+UPDATE consistency_rule_policy SET severity='warn' WHERE rule='C7b';
+
+-- 复核（写完派生数据后执行）
+SELECT consistency_recheck(sugar_id) FROM sugars ORDER BY sugar_id;
+-- 复核队列：谁没过、卡在哪条规则
+SELECT * FROM v_sugar_consistency_review ORDER BY consistency_ok, sugar_id;
+```
+
+数据库侧另提供 `glycan_bond_count()` 与 `glycan_formula_from_glycoct()`（由 GlycoCT
+的 RES/LIN 反推糖苷键数与分子式，已用 PubChem 参照值校验：GlcNAc `C8H15NO6`、
+GalA `C6H10O7`、Rha `C6H12O5`、乳糖型 `C12H22O11`、几丁二糖 `C16H28N2O11`）。
+
+> 注：`monosaccharide_ratio` 既可能是**百分比**（85.1/4.5/3.98）也可能是**摩尔比**
+> （`{"Fru":1.0}`）。C1 会先判别口径再判合计，避免把合法的比值数据误报成"表格漏抽行"。
 
 表格归属的 12 个残基类型仍保留在 `residues` 表，用于与 152 个位移一一对应
 （表格只列残基类型，正文连接式才给出聚合度）。若正文没有该结论句，

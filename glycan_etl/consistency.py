@@ -190,8 +190,22 @@ def check_composition_percent_sum(percentages: Dict[str, Any],
     if not percentages:
         return []
     try:
-        total = sum(float(v) for v in percentages.values() if v is not None)
+        vals = [float(v) for v in percentages.values() if v is not None]
     except (TypeError, ValueError):
+        return []
+    if not vals:
+        return []
+    total = sum(vals)
+    # 字段可能存"摩尔比"而非百分比（如 {"Fru":1.0}、{"Glc":1,"Gal":2}），
+    # 两种口径必须区分，否则会把合法比值误报成"百分比漏抽行"
+    # （实测在 Inulin 种子上误报过）。
+    #   百分比口径特征：存在 ≥10 的项，或合计落在 0~150 区间；
+    #   比值口径特征：各项都很小（最大 ≤8）且合计 ≤30。
+    is_percent_form = any(v >= 10.0 for v in vals) or 0 <= total <= 150
+    is_ratio_form = max(vals) <= 8.0 and total <= 30.0
+    if is_ratio_form and not any(v >= 10.0 for v in vals):
+        return []
+    if not is_percent_form:
         return []
     if abs(total - 100.0) > tol:
         return [{
