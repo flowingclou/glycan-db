@@ -717,6 +717,74 @@ def extract_linkage_sequence(full_text: str) -> List[Any]:
     return parse_sequence_expression(expr)
 
 
+def extract_branch_chains(full_text: str) -> List[Tuple[str, List[Any]]]:
+    """提取正文给出的支链定义，形如：
+    ``... branch chains were R1: β-D-Galp-(1→3)-β-D-Galp-(1→ and R2: ...``
+
+    返回 ``[(标签, 残基列表), ...]``；无支链时返回空列表。
+    """
+    t = normalize_structure_text(full_text)
+    m = re.search(r"branch\s+chains?\s+(?:was|were)\s*(.{10,400}?)(?:\.\s|\.$)",
+                  t, re.I)
+    if not m:
+        return []
+    out: List[Tuple[str, List[Any]]] = []
+    for chunk in re.split(r"\s+and\s+(?=R\d)", m.group(1)):
+        rm = re.match(r"\s*(R\d+)\s*[:：]\s*(.+)", chunk.strip())
+        if not rm:
+            continue
+        residues = parse_sequence_expression(rm.group(2).strip())
+        if residues:
+            out.append((rm.group(1), residues))
+    return out
+
+
+def assemble_structure(full_text: str):
+    """主链 + 支链 → (residues, chains, branch_links, notes)。
+
+    支链挂接点按**糖基类型**与主链分支点匹配（如含 Gal 的支链接到
+    4,6-β-D-Galp 的 C6）；匹配不唯一时退化为按顺序匹配并记录说明，
+    不静默臆造。
+    """
+    main = extract_linkage_sequence(full_text)
+    if not main:
+        return [], None, None, []
+    notes: List[str] = []
+    branches = extract_branch_chains(full_text)
+    if not branches:
+        return main, None, None, notes
+
+    residues: List[Any] = list(main)
+    chains: List[List[int]] = [[r.residue_seq for r in main]]
+    branch_links: List[Tuple[int, int, int]] = []
+    points = [(r.residue_seq, r.linkage_branch, r.monosaccharide_name)
+              for r in main if (r.linkage_branch or 0) > 0]
+    used: set = set()
+
+    for label, br in branches:
+        for r in br:
+            r.residue_seq = len(residues) + 1
+            residues.append(r)
+        br[-1].is_reducing_end = False        # 支链末端连到主链，不是还原端
+        chains.append([r.residue_seq for r in br])
+        tip = br[-1]
+        cand = [p for p in points
+                if p[0] not in used and p[2] == tip.monosaccharide_name]
+        matched_by_type = bool(cand)
+        if not cand:
+            cand = [p for p in points if p[0] not in used]
+        if not cand:
+            notes.append(f"支链 {label} 无可用主链分支点，未挂接")
+            continue
+        acc_seq, acc_pos, _ = cand[0]
+        used.add(acc_seq)
+        branch_links.append((acc_seq, acc_pos, tip.residue_seq))
+        notes.append(
+            f"支链 {label}→主链残基{acc_seq}的O{acc_pos}"
+            + ("（按糖基类型匹配）" if matched_by_type else "（按顺序匹配，待人工确认）"))
+    return residues, chains, branch_links, notes
+
+
 # 从 IUPAC 描述提取单糖块：`α -D-Gal p A -6-OMe-(1→` → seg=Gal, ring=p, acid=A
 RE_MONO_SEG = re.compile(
     r"(?:[αβab])?\s*-?\s*[DL]?-?\s*"
@@ -1041,16 +1109,27 @@ def build_record(meta: dict, kv_norm: dict, entries: List[dict],
     # （如 "the connection of the main chain was →[4)-β-D-Galp-(1]9→..."）。
     # 这是**完整结构**，优先使用它生成编码；表格残基只到"每个残基的连接位点"，
     # 无法给出残基间顺序。
-    seq_residues = extract_linkage_sequence(full_text) if full_text else []
+    seq_residues, chains, branch_links, seq_notes = (
+        assemble_structure(full_text) if full_text else ([], None, None, []))
     if seq_residues and _glycoct_lib is not None:
-        seq_gx = _glycoct_lib.build_glycoct(seq_residues, "poly")
+        seq_gx = _glycoct_lib.build_glycoct(
+            seq_residues, "poly", chains=chains, branch_links=branch_links)
         if seq_gx["glycoct"]:
+            # 正文连接式已给出完整结构，表格路径此前产生的"缺连接位点"
+            # 警告（表格只有残基级信息，端基残基本就没有 parent_carbon）
+            # 不再适用，避免在报告里留下误导性提示。
+            rec.qc_notes = [n for n in rec.qc_notes
+                            if not n.startswith("结构编码")]
             rec.glycoct = seq_gx["glycoct"]
             rec.structure_level = "complete"     # 完整序列，可做结构级比对
             rec.composition = seq_gx["composition"]
+            n_main = len(chains[0]) if chains else len(seq_residues)
             rec.qc_notes.append(
-                f"结构编码: 正文连接式解析出 {len(seq_residues)} 残基完整序列"
-                f"（表格归属列出 {len(rec.residues)} 个残基类型）")
+                f"结构编码: 正文连接式解析出 {len(seq_residues)} 残基"
+                f"（主链 {n_main} + 支链 {len(seq_residues) - n_main}）；"
+                f"表格归属列出 {len(rec.residues)} 个残基类型")
+            for n in seq_notes:
+                rec.qc_notes.append(f"结构编码: {n}")
             for w in seq_gx["warnings"]:
                 rec.qc_notes.append(f"结构编码(正文): {w}")
 

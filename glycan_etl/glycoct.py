@@ -136,7 +136,10 @@ def _composition_only(residues: Sequence[Any], warnings: List[str]) -> Dict[str,
 
 
 def build_glycoct(residues: Sequence[Any],
-                  sugar_type: str = "oligo") -> Dict[str, Any]:
+                  sugar_type: str = "oligo",
+                  chains: Optional[List[List[int]]] = None,
+                  branch_links: Optional[List[Tuple[int, int, int]]] = None,
+                  ) -> Dict[str, Any]:
     """从残基表生成标准 GlycoCT。
 
     参数
@@ -144,6 +147,10 @@ def build_glycoct(residues: Sequence[Any],
     residues : 具备 ``residue_seq`` / ``monosaccharide_name`` / ``anomer`` /
         ``parent_carbon`` 属性的对象序列（即 core.Residue）。
     sugar_type : ``mono`` / ``oligo`` / ``poly``，决定结构表达等级。
+    chains : 可选的链定义，每个元素是**残基序号**列表（按 非还原端→还原端
+        顺序）。缺省时把所有残基视为一条链。多条链用于主链 + 支链。
+    branch_links : 支链挂接，元素为 ``(受体残基序号, 受体位点, 供体残基序号)``，
+        表示供体的异头碳连到受体的 ``O<位点>``。
 
     返回
     ----
@@ -195,19 +202,36 @@ def build_glycoct(residues: Sequence[Any],
             link_lines.append(f"{len(link_lines) + 1}:{gid[getattr(r, 'residue_seq', next_id)]}d(2+1){next_id}n")
             next_id += 1
 
-    # ---- LIN 段：链式连接 供体(异头碳) -> 受体(parent_carbon) ----
+    # ---- LIN 段：供体(异头碳) -> 受体(parent_carbon) ----
+    by_seq = {getattr(r, "residue_seq", i + 1): r for i, r in enumerate(residues)}
+    # 链定义：缺省为单链（所有残基按给定顺序）；多条链用于主链 + 支链
+    chain_list: List[List[int]] = chains if chains else [
+        [getattr(r, "residue_seq", i + 1) for i, r in enumerate(residues)]]
+
     chain_ok = True
-    for i in range(len(residues) - 1):
-        donor, acceptor = residues[i], residues[i + 1]
-        pos = getattr(acceptor, "parent_carbon", None)
-        if pos is None:
-            chain_ok = False
-            warnings.append(
-                f"残基 {getattr(acceptor, 'residue_seq', i + 2)} 缺少连接位点，无法确定连接顺序")
+    for chain in chain_list:
+        for a_seq, b_seq in zip(chain, chain[1:]):
+            acceptor = by_seq.get(b_seq)
+            pos = getattr(acceptor, "parent_carbon", None) if acceptor else None
+            if acceptor is None or pos is None:
+                chain_ok = False
+                warnings.append(f"残基 {b_seq} 缺少连接位点，无法确定连接顺序")
+                break
+            link_lines.append(
+                f"{len(link_lines) + 1}:{gid[b_seq]}o({pos}+1){gid[a_seq]}d")
+        if not chain_ok:
             break
-        link_lines.append(
-            f"{len(link_lines) + 1}:{gid[getattr(acceptor, 'residue_seq', i + 2)]}"
-            f"o({pos}+1){gid[getattr(donor, 'residue_seq', i + 1)]}d")
+
+    # 支链挂接：供体的异头碳 -> 受体的 O<位点>
+    if chain_ok and branch_links:
+        for acc_seq, acc_pos, don_seq in branch_links:
+            if acc_seq not in gid or don_seq not in gid or not acc_pos:
+                chain_ok = False
+                warnings.append(
+                    f"支链挂接 ({acc_seq}, {acc_pos}, {don_seq}) 无法解析")
+                break
+            link_lines.append(
+                f"{len(link_lines) + 1}:{gid[acc_seq]}o({acc_pos}+1){gid[don_seq]}d")
 
     if not chain_ok:
         return _composition_only(residues, warnings)

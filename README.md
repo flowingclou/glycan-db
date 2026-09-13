@@ -213,12 +213,23 @@ the connection of the main chain was
 1. `text_linear` 按栏线性化（双栏排版会把该句被另一栏切断）；
 2. 定位结论句（"main chain/backbone ... was"），排除图注里的同名短语；
 3. 展开重复块 `[X]n`，解析每个残基的位点、构型、环形式；
-4. 交给 `glycoct.py` 生成完整序列编码 → `structure_level='complete'`。
+4. 同样提取支链定义（"branch chains were R1: … and R2: …"），按**糖基类型**
+   匹配主链分支点后挂接 —— 匹配不唯一时退化为按顺序匹配，并在 `qc_notes`
+   注明"待人工确认"，不静默臆造；
+5. 交给 `glycoct.py` 生成完整序列编码 → `structure_level='complete'`。
 
-实测效果（黄精多糖 SPR-1，J. Pharm. Anal. 2024）：主链 15 残基完整解析
-（9×β-D-Galp + 4,6-β-D-Galp + 2×α-D-GalpA + α-D-Glcp + 4,6-α-D-Glcp +
-还原端 α-D-Glcp），生成的 GlycoCT 通过 glypy 校验；表格归属的 12 个残基保留在
-`residues` 表用于谱图对应。若正文没有该结论句，则退回 `composition_only`。
+实测效果（黄精多糖 SPR-1，J. Pharm. Anal. 2024）：
+
+- 主链 15 残基（9×β-D-Galp + 4,6-β-D-Galp + 2×α-D-GalpA + α-D-Glcp +
+  4,6-α-D-Glcp + 还原端 α-D-Glcp）
+- 支链 R1 `β-D-Galp-(1→3)-β-D-Galp-(1→` → 挂到 4,6-β-D-Galp 的 O6；
+  R2 `α-D-Glcp-(1→6)-α-D-Glcp-(1→` → 挂到 4,6-α-D-Glcp 的 O6
+- 5 条链共 19 残基、18 条糖苷键，`composition = Gal12,Glc5,GalA2`，
+  GlycoCT 通过 glypy 校验
+
+表格归属的 12 个残基类型仍保留在 `residues` 表，用于与 152 个位移一一对应
+（表格只列残基类型，正文连接式才给出聚合度）。若正文没有该结论句，
+则如实退回 `composition_only`（如山楂多糖一文）。
 
 ---
 

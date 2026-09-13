@@ -327,6 +327,45 @@ def test_explain_zero_records():
 
 
 # ---------------------------------------------------------------------------
+# 8. 支链：从正文提取并挂接到主链分支点
+# ---------------------------------------------------------------------------
+def test_extract_branch_chains():
+    text = ("the connection of the branch chains were "
+            "R1: b-D-Galp-(1→3)-b-D-Galp-(1→ and R2: a-D-Glcp-(1→6)-a-D-Glcp-(1→.")
+    brs = tp.extract_branch_chains(text)
+    assert [label for label, _ in brs] == ["R1", "R2"], brs
+    assert [len(rs) for _, rs in brs] == [2, 2], brs
+
+
+def test_assemble_structure_attaches_branch_by_type():
+    """含 Gal 的支链应挂到主链的 4,6-β-D-Galp 分支点（按糖基类型匹配）。"""
+    text = ("the connection of the main chain was "
+            "→[4)-b-D-Galp-(1]2→4,6)-b-D-Galp-(1→4)-a-D-Glcp, and the connection "
+            "of the branch chains were R1: b-D-Galp-(1→3)-b-D-Galp-(1→.")
+    residues, chains, links, notes = tp.assemble_structure(text)
+    assert len(chains) == 2, chains                    # 主链 + 1 条支链
+    assert links and links[0][0] == 3, links           # 挂到第 3 个残基（4,6-Galp）
+    assert links[0][1] == 6, links                     # 位点 C6
+    assert residues[-1].is_reducing_end is False       # 支链末端不是还原端
+    assert any("R1" in n for n in notes), notes
+
+
+def test_branch_glycoct_has_branch_link():
+    """带支链的 GlycoCT 应通过 glypy 校验，且 LIN 段包含分支挂接。"""
+    _res = lambda s, n, a, p, br=0, red=False: core.Residue(
+        residue_seq=s, monosaccharide_name=n, anomer=a,
+        parent_carbon=p, linkage_branch=br, is_reducing_end=red)
+    out = gx.build_glycoct(
+        [_res(1, "Gal", "b", 4), _res(2, "Gal", "b", 4, br=6), _res(3, "Glc", "a", 4, red=True),
+         _res(4, "Gal", "b", None), _res(5, "Gal", "b", 3)],
+        "poly", chains=[[1, 2, 3], [4, 5]], branch_links=[(2, 6, 5)])
+    assert out["glycoct"], out
+    assert "2o(6+1)5d" in out["glycoct"], out["glycoct"]
+    ok, msg = gx.validate_glycoct(out["glycoct"])
+    assert ok is not False, msg
+
+
+# ---------------------------------------------------------------------------
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
