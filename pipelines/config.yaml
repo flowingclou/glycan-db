@@ -1,0 +1,22 @@
+# glycan_etl.py 配置文件示例
+# 保存为 etl_config.yaml 后, 将 --config 指向本文件
+
+# 当前 PDF 对应的源文献信息（溯源字段）
+doi: 10.1021/acs.joc.0c00000
+journal: J. Org. Chem.
+year: 2020
+
+# 数据库连接（PostgreSQL, 对应 v1/v2 建表）
+db:
+  host: localhost
+  port: 5432
+  dbname: glycan_db
+  user: postgres
+  password: CHANGE_ME
+
+# 解析调优（可选）
+parse:
+  min_shift_h1: 0.0      # ¹H 位移下界过滤
+  max_shift_h1: 12.0     # ¹H 位移上界过滤
+  min_shift_c13: 10.0    # ¹³C 位移下界
+  max_shift_c13: 220.0   # ¹³C 位移上界

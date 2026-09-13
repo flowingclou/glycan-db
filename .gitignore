@@ -1,0 +1,30 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# --- 虚拟环境 ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- 环境与密钥（真实口令 / API Key 一律不入库）---
+.env
+.env.*
+*.secret.yaml
+*.local.yaml
+pipelines/config.local.yaml
+
+# --- 运行产物 ---
+etl_reports/
+*.log
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride

@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: glycan-db
+    restart: unless-stopped
+    ports:
+      # 宿主端口:容器端口。如需避免与本地已有 PostgreSQL 冲突，可修改左侧端口
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: glycan_db
+      POSTGRES_USER: glycan
+      POSTGRES_PASSWORD: glycan_dev
+    volumes:
+      - glycan_pgdata:/var/lib/postgresql/data
+      # 首次初始化自动执行幂等建库脚本（已含 pgvector / pgcrypto 扩展）
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glycan -d glycan_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  glycan_pgdata:

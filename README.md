@@ -1,0 +1,148 @@
+# glycan-db · 糖类结构数据库数据工程流水线
+
+> 为 **AI 辅助推断多糖结构平台** 提供「已知结构 — 谱图」真值参考数据库的数据工程流水线。
+> 从糖类文献补充材料（Supporting Information，含 ¹H/¹³C NMR、2D 谱、结构式）的 PDF
+> 自动解析为结构化记录，写入 PostgreSQL**扩展了 pgvector 向量检索**的糖类数据库。
+
+本仓库是模块化、可分享的工程化整理版本：把散装的 ETL 脚本重组为**解析引擎包 + 批量管道 + 数据库迁移 + 一键环境**，
+便于版本管理、协作开发，也便于后续对接检索知识库与 AI 推理平台。
+
+---
+
+## 1. 项目定位
+
+| 层面 | 说明 |
+|---|---|
+| 数据来源 | 多糖/寡糖文献补充材料 PDF（正文文本层，含 NMR 归属表、分子量表、结构写法） |
+| 解析产出 | sugars / residues / nmr_experiments / nmr_shifts_1d / nmr_correlations_2d / physicochemical / polysaccharide_props / literature |
+| 存储 | PostgreSQL 16 + pgvector（embedding 列） |
+| 下游用途 | 作为 AI 辅助推断多糖结构的**真值/参照数据库**：检索知识库召回相似结构，再交给 AI 平台做结构推断验证 |
+
+---
+
+## 2. 快速开始
+
+### 2.1 一键起库（PostgreSQL 16 + pgvector）
+
+```bash
+docker compose up -d
+# 首次启动会自动执行 db/init.sql（幂等建库 + 种子数据，含 vector/pgcrypto 扩展）
+```
+
+默认连接：`localhost:5432`，库 `glycan_db`，用户 `glycan`，密码 `glycan_dev`（**仅限本地开发，生产请修改**）。
+
+### 2.2 安装 Python 依赖
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2.3 自检
+
+```bash
+python3 tests/run_tests.py     # py_compile 全仓校验 + batch_etl --self-test
+# 或单跑
+python3 pipelines/batch_etl.py --self-test   # 输出 SELF-TEST PASS 即正常
+```
+
+### 2.4 批量解析 PDF
+
+```bash
+# ① 批量 dry-run（零风险，推荐先跑）
+python3 pipelines/batch_etl.py --dir "/path/to/补充材料目录" [--filter SI]
+
+# ② 准备真实连接配置（复制示例，勿把真实口令提交到仓库）
+cp pipelines/config.yaml pipelines/config.local.yaml   # 编辑 db.* 为真实值
+
+# ③ 批量正式入库
+python3 pipelines/batch_etl.py --dir "/path/to/目录" --config pipelines/config.local.yaml
+```
+
+多份不同文献批量入库时，推荐用 `--meta meta.yaml` 按文件名逐份指定 doi/journal/year，避免溯源串档。
+
+---
+
+## 3. 目录结构
+
+```text
+glycan-db/
+├── README.md               # 本文件
+├── LICENSE                 # MIT
+├── pyproject.toml(可选)    # （预留）包元数据
+├── requirements.txt        # Python 依赖：pdfplumber / psycopg2-binary / pyyaml
+├── docker-compose.yml      # PostgreSQL16 + pgvector 一键环境（挂载 init.sql）
+├── .gitignore              # 排除缓存 / 虚拟环境 / 真实密钥配置文件
+├── db/
+│   ├── init.sql            # 三份迁移合并后的幂等一键建库脚本（可重复执行）
+│   ├── migrations/         # 分版本迁移 SQL
+│   │   ├── v001_mvp.sql    #   单糖四表（sugars/literature/nmr_experiments/nmr_shifts_1d）
+│   │   ├── v002_extend.sql #   残基/2D 相关峰/物化/多糖性质扩展
+│   │   └── v003_qc.sql     #   质控触发器 R1-R10 + 全库校验函数
+│   └── schema_design.md    # 数据库 schema 设计文档
+├── glycan_etl/             # 解析引擎包
+│   ├── __init__.py         #   包初始化 + __version__
+│   ├── core.py             #   单份 PDF 解析入库引擎（v3.x 全功能）
+│   ├── table_parser.py     #   表格式文献解析器（分子量表/归属表/正文键连）
+│   └── embeddings.py       #   BGE-M3 向量化脚本（API Key 仅从环境变量读取）
+├── pipelines/
+│   ├── batch_etl.py        # 批量执行器（自检/批量 dry-run/批量入库/汇总报告）
+│   └── config.yaml         # 配置示例（含数据库连接占位符与溯源字段）
+├── tests/
+│   └── run_tests.py        # 自检入口（py_compile + self-test）
+└── docs/
+    └── skill_guide.md      # glycan-etl 技能使用说明（可用即用指南）
+```
+
+---
+
+## 4. 模块说明
+
+### 4.1 解析引擎包 `glycan_etl/`
+
+| 模块 | 职责 |
+|---|---|
+| `core.py` | 核心解析入库引擎：PDF 文本层抽取、单糖/残基/键连结构写法识别、NMR 位移提取、QC 判定、入库。复用数据类 `GlycanRecord / Residue / NMRExperiment / Peak1D / PolysaccharideProps` 与 `MONOSACCHARIDES` 常量 |
+| `table_parser.py` | 补齐表格式文献的解析：Table1 分子量表（RT/Mp/Mw/Mn/单糖 mol%）、Table2 归属表（残基编码列 / IUPAC 列 / H·C 成对）、正文甲基化/糖苷键连三类 |
+| `embeddings.py` | 读取库内结构化记录，调用 SiliconFlow BGE-M3 API 生成向量并回写 embedding 列。API Key 仅从环境变量 `SILICONFLOW_API_KEY` 读取，代码内不含任何明文密钥 |
+
+### 4.2 批量管道 `pipelines/`
+
+`batch_etl.py` 封装「单 PDF → 手动改 config → dry-run → 入库」多步流程为一次命令：
+- `--self-test`：环境自检（内置样例文本，不依赖 PDF 与数据库）
+- `--dir / --pdf`：整目录或指定多份 PDF
+- `--dry-run`（缺省）：零风险解析，生成汇总报告到 `etl_reports/`
+- `--config`：正式入库连接配置；缺省自动降级为 dry-run
+- `--meta`：按文件名逐份指定文献溯源
+- `--save-json`：额外输出完整解析明细
+
+### 4.3 数据库 `db/`
+
+- `init.sql` 为三份迁移（v001 MVP → v002 扩展 → v003 质控）合并后的**幂等脚本**：
+  `CREATE EXTENSION IF NOT EXISTS vector/pgcrypto` + 全部 `CREATE TABLE IF NOT EXISTS` + 种子数据
+  `ON CONFLICT / NOT EXISTS` 防重，**可重复执行不报错、不产生脏数据**。
+- 手工分步建库可依次执行 `migrations/v001_mvp.sql → v002_extend.sql → v003_qc.sql`。
+
+---
+
+## 5. 如何对接（下游平台 / 检索知识库 / AI 平台）
+
+1. **直接查询**：任何 PostgreSQL 客户端按 §2.1 连接 `glycan_db`，从 8 张业务表读取结构化真值记录。
+2. **向量检索（语义召回相似结构）**：库内含 embedding 列（pgvector），可用 SQL 近邻检索：
+   ```sql
+   SELECT s.iupac_short, 1 - (e.embedding <=> $1::vector) AS sim
+   FROM sugars s JOIN nmr_experiments nx USING (sugar_id)
+   JOIN nmr_shifts_1d e ON e.experiment_id = nx.experiment_id
+   ORDER BY e.embedding <=> $1::vector
+   LIMIT 10;
+   ```
+3. **AI 平台接入**：AI 推断出的候选结构，可用其 GlycoCT/IUPAC 与 NMR 位移特征向量，回查上表做「推断 vs 真值」比对，实现验证与纠偏。
+4. **对接知识库**：将 `etl_reports/` 报告与结构化记录作为语料注入检索知识库，供上层 Agent/AI 平台引用。
+
+---
+
+## 6. 安全与规范
+
+- 本仓库**禁止提交任何真实数据库口令 / API Key**：所有敏感值以占位符（`CHANGE_ME`、`sk-xxx`）或环境变量形式存在。
+- 真实连接配置请复制为 `pipelines/config.local.yaml`（已被 `.gitignore` 排除）。
+- Embedding 的 API Key 通过环境变量注入：`export SILICONFLOW_API_KEY=<你的key>`。

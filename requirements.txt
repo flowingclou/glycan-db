@@ -1,0 +1,11 @@
+# glycan-db 数据工程流水线依赖
+# 安装: pip install -r requirements.txt
+
+# PDF 文本层解析（core / table_parser）
+pdfplumber>=0.10.0
+
+# PostgreSQL 连接（core / batch_etl / embeddings）
+psycopg2-binary>=2.9.0
+
+# YAML 配置解析（core / batch_etl）
+PyYAML>=6.0
