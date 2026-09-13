@@ -1,0 +1,1964 @@
+{
+  "parser": "glycan_table_parser v1.0.0",
+  "etl_backend": "v3",
+  "document": {
+    "file": "/Users/hqx/Downloads/output/hawthorn_polysaccharide_IJBM2025.pdf",
+    "filename": "hawthorn_polysaccharide_IJBM2025.pdf",
+    "pages": 14
+  },
+  "meta": {
+    "doi": "10.1016/j.ijbiomac.2025.145713",
+    "journal": "International Journal of Biological Macromolecules",
+    "year": 2025,
+    "title": "International Journal of Biological Macromolecules",
+    "polysaccharide": null
+  },
+  "stats": {
+    "pages": 14,
+    "n_polysaccharide_records": 1,
+    "n_residues": 16,
+    "n_shifts": 170,
+    "n_linkages": 21,
+    "n_kv_rows": 7,
+    "molecular_table": 4,
+    "shift_table": 7,
+    "kv_captions": [
+      "Table 1"
+    ],
+    "shift_captions": [
+      "Table 2"
+    ]
+  },
+  "molecular_table": {
+    "RT": 32.955,
+    "molecular_weight_mp": 125676.0,
+    "molecular_weight_mw": 168471.0,
+    "molecular_weight_mn": 104576.0,
+    "monosaccharide_mol_pct": {
+      "GalA": 85.1,
+      "Man": 4.506,
+      "Gal": 3.983
+    },
+    "name": "unknown polysaccharide"
+  },
+  "records": [
+    {
+      "sugar_type": "poly",
+      "iupac_short": "unknown polysaccharide",
+      "glycoct": null,
+      "molecular_formula": null,
+      "molecular_weight": null,
+      "anomer": null,
+      "doi": "10.1016/j.ijbiomac.2025.145713",
+      "journal": "International Journal of Biological Macromolecules",
+      "year": 2025,
+      "nmr_page": 7,
+      "residues": [
+        {
+          "residue_seq": 1,
+          "monosaccharide_name": "GalA",
+          "ring_form": "p",
+          "anomer": "a",
+          "is_reducing_end": false,
+          "parent_carbon": 4,
+          "linkage_branch": 0
+        },
+        {
+          "residue_seq": 2,
+          "monosaccharide_name": "GalA",
+          "ring_form": "p",
+          "anomer": "a",
+          "is_reducing_end": false,
+          "parent_carbon": 4,
+          "linkage_branch": 0
+        },
+        {
+          "residue_seq": 3,
+          "monosaccharide_name": "GalA",
+          "ring_form": "p",
+          "anomer": "a",
+          "is_reducing_end": false,
+          "parent_carbon": 3,
+          "linkage_branch": 4
+        },
+        {
+          "residue_seq": 4,
+          "monosaccharide_name": "GalA",
+          "ring_form": "p",
+          "anomer": "a",
+          "is_reducing_end": false,
+          "parent_carbon": 2,
+          "linkage_branch": 4
+        },
+        {
+          "residue_seq": 5,
+          "monosaccharide_name": "GalA",
+          "ring_form": "p",
+          "anomer": "a",
+          "is_reducing_end": false,
+          "parent_carbon": null,
+          "linkage_branch": 0
+        },
+        {
+          "residue_seq": 6,
+          "monosaccharide_name": "GalA",
+          "ring_form": "p",
+          "anomer": "a",
+          "is_reducing_end": true,
+          "parent_carbon": 4,
+          "linkage_branch": 0
+        },
+        {
+          "residue_seq": 7,
+          "monosaccharide_name": "GalA",
+          "ring_form": "p",
+          "anomer": "b",
+          "is_reducing_end": true,
+          "parent_carbon": 4,
+          "linkage_branch": 0
+        },
+        {
+          "residue_seq": 8,
+          "monosaccharide_name": "Gal",
+          "ring_form": "p",
+          "anomer": "b",
+          "is_reducing_end": false,
+          "parent_carbon": 3,
+          "linkage_branch": 6
+        },
+        {
+          "residue_seq": 9,
+          "monosaccharide_name": "Gal",
+          "ring_form": "p",
+          "anomer": "b",
+          "is_reducing_end": false,
+          "parent_carbon": 6,
+          "linkage_branch": 0
+        },
+        {
+          "residue_seq": 10,
+          "monosaccharide_name": "Gal",
+          "ring_form": "p",
+          "anomer": "b",
+          "is_reducing_end": false,
+          "parent_carbon": 3,
+          "linkage_branch": 0
+        },
+        {
+          "residue_seq": 11,
+          "monosaccharide_name": "Ara",
+          "ring_form": "f",
+          "anomer": "a",
+          "is_reducing_end": false,
+          "parent_carbon": null,
+          "linkage_branch": 0
+        },
+        {
+          "residue_seq": 12,
+          "monosaccharide_name": "Ara",
+          "ring_form": "f",
+          "anomer": "a",
+          "is_reducing_end": false,
+          "parent_carbon": 5,
+          "linkage_branch": 0
+        },
+        {
+          "residue_seq": 13,
+          "monosaccharide_name": "Ara",
+          "ring_form": "f",
+          "anomer": "a",
+          "is_reducing_end": false,
+          "parent_carbon": 3,
+          "linkage_branch": 5
+        },
+        {
+          "residue_seq": 14,
+          "monosaccharide_name": "Rha",
+          "ring_form": "p",
+          "anomer": "a",
+          "is_reducing_end": false,
+          "parent_carbon": 2,
+          "linkage_branch": 0
+        },
+        {
+          "residue_seq": 15,
+          "monosaccharide_name": "Rha",
+          "ring_form": "p",
+          "anomer": "a",
+          "is_reducing_end": false,
+          "parent_carbon": 2,
+          "linkage_branch": 4
+        },
+        {
+          "residue_seq": 16,
+          "monosaccharide_name": "GlcA",
+          "ring_form": "p",
+          "anomer": "b",
+          "is_reducing_end": false,
+          "parent_carbon": null,
+          "linkage_branch": 0
+        }
+      ],
+      "physicochemical": null,
+      "poly_props": {
+        "repeat_unit_formula": null,
+        "degree_of_polymerization": null,
+        "molecular_weight_mn": 104576.0,
+        "molecular_weight_mw": 168471.0,
+        "polydispersity": null,
+        "monosaccharide_ratio": {
+          "GalA": 85.1,
+          "Man": 4.506,
+          "Gal": 3.983
+        },
+        "backbone": "4-GalA(p,a); 3,4-GalA(p,a); 2,4-GalA(p,a); t-GalA(p,a); 4-GalA(p,b); 3,6-Gal(p,b); 6-Gal(p,b); 3-Gal(p,b); t-Ara(f,a); 5-Ara(f,a); 3,5-Ara(f,a); 2-Rha(p,a); 2,4-Rha(p,a); t-GlcA(p,b)",
+        "branching": "4-GalA(p), t-GalA(p), 4-Glc(p), t-GlcA(p), 4,6-GalA(p)"
+      },
+      "experiments": [
+        {
+          "nucleus": "1H",
+          "experiment_2d": null,
+          "solvent": "D2O",
+          "frequency": null,
+          "temperature": null,
+          "ph": null,
+          "peaks": [
+            {
+              "nucleus": "1H",
+              "shift": 4.88,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.63,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.91,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.39,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 5.035,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.71,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 -OMe",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 5.01,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,4 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.63,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,4 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.92,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,4 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.37,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,4 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.63,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,4 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.98,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,3,4 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.63,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,3,4 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.92,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,3,4 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.3,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,3,4 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 5.035,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,3,4 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.82,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,2,4 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.62,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,2,4 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.92,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,2,4 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.37,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,2,4 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 5.035,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,2,4 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 5.06,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GAt 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.65,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GAt 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.9,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GAt 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.32,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GAt 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.62,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GAt 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 5.22,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rα 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.73,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rα 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.9,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rα 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.51,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rβ 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.4,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rβ 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.67,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rβ 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.39,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.45,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.63,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.06,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.83,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.875,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.39,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.46,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.64,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.05,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.82,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.92,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.55,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.58,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.66,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.09,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.69,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 5.16,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "At 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.12,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "At 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.86,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "At 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.03,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "At 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.685,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "At 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 5.0,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,5 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.04,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,5 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.91,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,5 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.97,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,5 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.745,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,5 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 5.06,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,3,5 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.05,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,3,5 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.95,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,3,5 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.21,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,3,5 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.87,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,3,5 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 5.17,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.13,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.86,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.32,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.68,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 1.15,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 5.17,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.13,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.8,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.61,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.75,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 1.15,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 4.42,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.28,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.48,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.19,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.63,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "1H",
+              "shift": 3.39,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA -OMe",
+              "is_anomeric": false
+            }
+          ],
+          "peaks_2d": []
+        },
+        {
+          "nucleus": "13C",
+          "experiment_2d": null,
+          "solvent": "D2O",
+          "frequency": null,
+          "temperature": null,
+          "ph": null,
+          "peaks": [
+            {
+              "nucleus": "13C",
+              "shift": 100.22,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 67.84,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 68.49,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 78.31,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 70.4,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 170.66,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 52.72,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GE1,4 -OMe",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 99.25,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,4 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 67.85,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,4 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 68.5,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,4 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 78.96,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,4 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 71.24,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,4 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 175.01,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,4 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 98.92,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,3,4 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 67.84,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,3,4 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 76.54,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,3,4 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 78.64,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,3,4 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 70.42,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,3,4 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 170.67,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,3,4 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 99.9,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,2,4 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 74.31,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,2,4 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 67.98,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,2,4 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 78.96,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,2,4 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 70.41,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,2,4 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 170.68,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GA1,2,4 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 99.25,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GAt 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 67.9,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GAt 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 68.63,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GAt 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 70.4,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GAt 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 71.24,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GAt 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 175.02,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "GAt 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 91.99,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rα 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 67.86,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rα 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 68.49,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rα 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 96.04,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rβ 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 71.24,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rβ 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 71.89,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rβ 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 103.29,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 71.24,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 78.78,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 68.31,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 73.33,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 69.28,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3,6 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 103.3,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 71.25,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 78.8,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 68.4,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 73.35,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 69.28,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,6 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 104.27,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 71.56,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 79.94,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 68.82,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 60.77,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "G1,3 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 109.06,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "At 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 81.06,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "At 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 76.4,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "At 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 83.8,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "At 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 60.77,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "At 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 107.29,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,5 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 80.87,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,5 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 76.54,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,5 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 83.81,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,5 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 66.54,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,5 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 106.83,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,3,5 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 80.73,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,3,5 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 83.8,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,3,5 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 81.19,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,3,5 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 65.42,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "A1,3,5 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 98.27,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 78.5,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 70.4,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 71.7,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 69.47,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 15.59,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 98.27,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 78.51,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 69.8,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 78.5,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 68.49,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 15.6,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "Rha1,2,4 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 102.46,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA 1",
+              "is_anomeric": true
+            },
+            {
+              "nucleus": "13C",
+              "shift": 73.01,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA 2",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 74.12,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA 3",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 82.36,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA 4",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 74.45,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA 5",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 175.4,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA 6a/6b",
+              "is_anomeric": false
+            },
+            {
+              "nucleus": "13C",
+              "shift": 60.12,
+              "multiplicity": null,
+              "j_coupling": null,
+              "integration": null,
+              "assignment": "4MeGlcA -OMe",
+              "is_anomeric": false
+            }
+          ],
+          "peaks_2d": []
+        }
+      ],
+      "qc_notes": [
+        "table-parser: molecular table (Table-like 1)",
+        "table-parser: shift table with 16 residues"
+      ],
+      "qc_status": "dry-run-ok"
+    }
+  ],
+  "linkages": [
+    {
+      "linkage_type": "repeat_unit",
+      "position": "4",
+      "sugar": "GalA",
+      "ring": "p",
+      "anomer": "a",
+      "count": 3,
+      "src": "GE1,4"
+    },
+    {
+      "linkage_type": "repeat_unit_substituent",
+      "position": "6",
+      "sugar": "OMe",
+      "ring": "",
+      "anomer": "unknown",
+      "count": 1,
+      "src": "GE1,4"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "3,4",
+      "sugar": "GalA",
+      "ring": "p",
+      "anomer": "a",
+      "count": 1,
+      "src": "GA1,3,4"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "2,4",
+      "sugar": "GalA",
+      "ring": "p",
+      "anomer": "a",
+      "count": 1,
+      "src": "GA1,2,4"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "t",
+      "sugar": "GalA",
+      "ring": "p",
+      "anomer": "a",
+      "count": 1,
+      "src": "GAt"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "4",
+      "sugar": "GalA",
+      "ring": "p",
+      "anomer": "b",
+      "count": 1,
+      "src": "Rβ"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "3,6",
+      "sugar": "Gal",
+      "ring": "p",
+      "anomer": "b",
+      "count": 1,
+      "src": "G1,3,6"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "6",
+      "sugar": "Gal",
+      "ring": "p",
+      "anomer": "b",
+      "count": 1,
+      "src": "G1,6"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "3",
+      "sugar": "Gal",
+      "ring": "p",
+      "anomer": "b",
+      "count": 1,
+      "src": "G1,3"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "t",
+      "sugar": "Ara",
+      "ring": "f",
+      "anomer": "a",
+      "count": 1,
+      "src": "At"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "5",
+      "sugar": "Ara",
+      "ring": "f",
+      "anomer": "a",
+      "count": 1,
+      "src": "A1,5"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "3,5",
+      "sugar": "Ara",
+      "ring": "f",
+      "anomer": "a",
+      "count": 1,
+      "src": "A1,3,5"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "2",
+      "sugar": "Rha",
+      "ring": "p",
+      "anomer": "a",
+      "count": 1,
+      "src": "Rha1,2"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "2,4",
+      "sugar": "Rha",
+      "ring": "p",
+      "anomer": "a",
+      "count": 1,
+      "src": "Rha1,2,4"
+    },
+    {
+      "linkage_type": "repeat_unit",
+      "position": "t",
+      "sugar": "GlcA",
+      "ring": "p",
+      "anomer": "b",
+      "count": 1,
+      "src": "4MeGlcA"
+    },
+    {
+      "linkage_type": "repeat_unit_substituent",
+      "position": "4",
+      "sugar": "OMe",
+      "ring": "",
+      "anomer": "unknown",
+      "count": 1,
+      "src": "4MeGlcA"
+    },
+    {
+      "linkage_type": "methylation",
+      "position": "4",
+      "sugar": "GalA",
+      "ring": "p",
+      "anomer": "unknown",
+      "count": 2
+    },
+    {
+      "linkage_type": "methylation",
+      "position": "t",
+      "sugar": "GalA",
+      "ring": "p",
+      "anomer": "unknown",
+      "count": 1
+    },
+    {
+      "linkage_type": "methylation",
+      "position": "4",
+      "sugar": "Glc",
+      "ring": "p",
+      "anomer": "unknown",
+      "count": 1
+    },
+    {
+      "linkage_type": "methylation",
+      "position": "t",
+      "sugar": "GlcA",
+      "ring": "p",
+      "anomer": "unknown",
+      "count": 1
+    },
+    {
+      "linkage_type": "methylation",
+      "position": "4,6",
+      "sugar": "GalA",
+      "ring": "p",
+      "anomer": "unknown",
+      "count": 1
+    }
+  ]
+}

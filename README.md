@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: e82e471de5dc79d6e88eb5b8f99c8085_5d581970af3411f1ac01525400e6dd8f
+    ReservedCode1: 85y0F5zhIRxYR8A9oOV3a7DKtpZUkFFOUfD+78b+dgyW5bxhFe+5TzdLOSlZQeR7Q2CN/cWVozO95z6QJUncmbhA7vAbPXXJFJsf8gkvRika90U9D5RWw4DTM2yi8NQztvvKgoEMxNkHmon+RqzHe4F0SlqF7nWZV5MqqNZRl2mlPMr4sjaQzfY4C6Y=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: e82e471de5dc79d6e88eb5b8f99c8085_5d581970af3411f1ac01525400e6dd8f
+    ReservedCode2: 85y0F5zhIRxYR8A9oOV3a7DKtpZUkFFOUfD+78b+dgyW5bxhFe+5TzdLOSlZQeR7Q2CN/cWVozO95z6QJUncmbhA7vAbPXXJFJsf8gkvRika90U9D5RWw4DTM2yi8NQztvvKgoEMxNkHmon+RqzHe4F0SlqF7nWZV5MqqNZRl2mlPMr4sjaQzfY4C6Y=
+---
+
 # glycan-db · 糖类结构数据库数据工程流水线
 
 > 为 **AI 辅助推断多糖结构平台** 提供「已知结构 — 谱图」真值参考数据库的数据工程流水线。
@@ -146,3 +157,4 @@ glycan-db/
 - 本仓库**禁止提交任何真实数据库口令 / API Key**：所有敏感值以占位符（`CHANGE_ME`、`sk-xxx`）或环境变量形式存在。
 - 真实连接配置请复制为 `pipelines/config.local.yaml`（已被 `.gitignore` 排除）。
 - Embedding 的 API Key 通过环境变量注入：`export SILICONFLOW_API_KEY=<你的key>`。
+*（内容由AI生成，仅供参考）*

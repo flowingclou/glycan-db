@@ -30,6 +30,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import sys
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -120,6 +121,278 @@ def parse_one_pdf(gle, pdf_path, doi, journal, year):
     return text, blocks, records
 
 
+# ===========================================================================
+# 自动分流解析层 (auto-dispatch v1.0)
+#  对每份 PDF 先轻量探测类型（表格型 / 行内型 / 混合型），再自动选路：
+#    - 表格型  -> glycan_etl/table_parser.py（位移归属表 / 分子量表）
+#    - 行内型  -> glycan_etl/core.py（正文分子式 NMR 写法）
+#    - 混合型  -> 两路都跑并合并去重
+#  主路结果为空时自动补跑另一路（fallback），保证不漏。
+# ===========================================================================
+
+# 探测规则配置（可调）：
+#   判定优先级：table_score>=2 且 table>=inline -> table；
+#               inline>=2 且 inline>table      -> inline；
+#               两者都命中                     -> mixed；
+#               都未命中                       -> inline（默认 core，零风险）
+DETECT_CFG = {
+    "head_pages": 5,                 # 读取前几页做轻量探测
+    # 表格型特征
+    "table_caption_re": r"(?m)^\s*Table\s+\d+[\.:\s]",
+    "ppm_token_re": r"\d+\.\d+",
+    "col_ppm_min": 3,                # 一行至少这么多个 ppm 数值算"表格数据行"
+    "ppm_value_range": (0.3, 230.0),  # 合理化学位移数值范围
+    "usec_head_hint": ("1H", "13C", "δ", "ppm"),   # 归属表头提示词
+    # 行内型特征（正文分子式 NMR 写法）
+    "inline_j_re": r"\bδ\s*\d+\.\d+\s*\([a-z]+\s*,?\s*(J\s*=\s*\d+(\.\d+)?\s*Hz)?",
+    "inline_shift_re": r"\d+\.\d{2}\s*\((s|d|t|q|m|br\s*s|br\s*d)\b[^)]*\)",
+    "inline_atom_re": r"\bH-\d+|\bC-\d+",
+}
+
+
+def peek_pdf_text(pdf_path: str, head_pages: int = None):
+    """读取 PDF 前几页纯文本（含标题/引言/表格区域），用于类型探测。"""
+    head_pages = head_pages if head_pages is not None else DETECT_CFG["head_pages"]
+    try:
+        import pdfplumber
+    except ImportError:
+        log.warning("缺少 pdfplumber，无法探测 PDF 类型，将按默认行内型解析")
+        return None
+    parts = []
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages[:head_pages]:
+                parts.append(page.extract_text() or "")
+    except Exception as e:  # noqa: BLE001
+        log.warning("探测首页文本失败（%s），将按默认行内型解析: %s", os.path.basename(pdf_path), e)
+        return None
+    if not parts:
+        return None
+    return "\n".join(parts)
+
+
+def _score_table_like(text: str) -> dict:
+    """启发式：是否存在化学位移归属表 / 分子量表特征。"""
+    if not text:
+        return {"captions": 0, "columns": 0, "head_hits": 0, "table_hits": 0}
+    cfg = DETECT_CFG
+    captions = len(re.findall(cfg["table_caption_re"], text))
+    ppm_re = re.compile(r"\d+\.\d+")
+    lo, hi = cfg["ppm_value_range"]
+    col_rows = 0          # 单行 ≥3 个数值 → 疑似表格数据行
+    table_rows = 0        # 数值个数在合理范围内的表格行（排除正文长句）
+    for line in text.splitlines():
+        nums = [float(x) for x in ppm_re.findall(line)]
+        if len(nums) < cfg["col_ppm_min"]:
+            continue
+        in_range = [n for n in nums if lo <= n <= hi]
+        if len(in_range) >= cfg["col_ppm_min"]:
+            col_rows += 1
+        if len(in_range) >= 2:
+            table_rows += 1
+    ll = text.lower()
+    head_hits = sum(1 for k in cfg["usec_head_hint"] if k.lower() in ll)
+    # 判定：多处 Table 提注 + 列式数值行/归属表头提示
+    table_hits = 0
+    if captions >= 1 and (col_rows >= 2 or head_hits >= 2):
+        table_hits += 1
+    if captions >= 1 and table_rows >= 2 and head_hits >= 1:
+        table_hits += 1
+    if col_rows >= 3 and head_hits >= 2:
+        table_hits += 1
+    return {"captions": captions, "columns": col_rows, "head_hits": head_hits,
+            "table_hits": table_hits}
+
+
+def _score_inline_like(text: str) -> dict:
+    """启发式：正文分子式 NMR 写法（如 δ 5.35 (d, J = 7.8) / 3.95 (s, 3H, H-1)）。"""
+    if not text:
+        return {"shifts": 0, "j": 0, "atoms": 0, "inline_hits": 0}
+    cfg = DETECT_CFG
+    j = len(re.findall(cfg["inline_j_re"], text))
+    shifts = len(re.findall(cfg["inline_shift_re"], text))
+    atoms = len(re.findall(cfg["inline_atom_re"], text))
+    inline_hits = 0
+    if j >= 1:
+        inline_hits += 1
+    if shifts >= 1:
+        inline_hits += 1
+    if atoms >= 2:
+        inline_hits += 1
+    return {"shifts": shifts, "j": j, "atoms": atoms, "inline_hits": inline_hits}
+
+
+def detect_pdf_type(text: str = None, pdf_path: str = None):
+    """轻量探测 PDF 类型（表格型/行内型/混合型）。
+
+    优先级: table >= inline -> table；inline > table -> inline；
+    两者都命中 -> mixed；都未命中 -> inline（fallback，默认 core）。
+    返回 (mode, evidence)。
+    """
+    if text is None and pdf_path is not None:
+        text = peek_pdf_text(pdf_path)
+    if not text:
+        return "inline", {"mode": "inline", "fallback": "no-text",
+                          "table_hits": 0, "inline_hits": 0}
+    ts = _score_table_like(text)
+    ns = _score_inline_like(text)
+    t, i = ts["table_hits"], ns["inline_hits"]
+    evidence = {**ts, **ns}
+    if t >= 2 and t >= i:
+        mode = "table"
+    elif i >= 2 and i > t:
+        mode = "inline"
+    elif t >= 1 or i >= 1:
+        mode = "mixed"
+    else:
+        mode = "inline"
+        evidence["fallback"] = "no-clear-signal"
+    evidence["mode"] = mode
+    return mode, evidence
+
+
+# ---------------------------------------------------------------------------
+# 表格型记录 -> core.GlycanRecord 归一化（对齐入库前格式）
+# ---------------------------------------------------------------------------
+def _dataclass_from(blob, cls):
+    """按 dataclass 字段白名单从 dict 构造，忽略多余键（兼容不同宽度输出）。"""
+    fields = set(cls.__dataclass_fields__)
+    return cls(**{k: v for k, v in blob.items() if k in fields})
+
+
+def table_blob_to_records(blob: dict, doi, journal, year):
+    """把 table_parser 输出的 asdict 记录结构归一化为 core.GlycanRecord。"""
+    from glycan_etl import core as _core
+    rec = _core.GlycanRecord(
+        sugar_type=blob.get("sugar_type") or "poly",
+        iupac_short=blob.get("iupac_short"),
+        glycoct=blob.get("glycoct"),
+        molecular_formula=blob.get("molecular_formula"),
+        molecular_weight=blob.get("molecular_weight"),
+        anomer=blob.get("anomer"),
+        doi=doi if doi not in (None, "UNKNOWN") else blob.get("doi"),
+        journal=journal if journal is not None else blob.get("journal"),
+        year=year if year is not None else blob.get("year"),
+        nmr_page=blob.get("nmr_page"),
+    )
+    rec.residues = [_dataclass_from(r, _core.Residue) for r in blob.get("residues") or []]
+    if blob.get("physicochemical"):
+        rec.physicochemical = _dataclass_from(blob["physicochemical"], _core.Physicochemical)
+    if blob.get("poly_props"):
+        rec.poly_props = _dataclass_from(blob["poly_props"], _core.PolysaccharideProps)
+    for e in blob.get("experiments") or []:
+        exp = _core.NMRExperiment(
+            nucleus=e.get("nucleus", "1H"),
+            experiment_2d=e.get("experiment_2d"),
+            solvent=e.get("solvent") or "D2O",
+            frequency=e.get("frequency"),
+            temperature=e.get("temperature"),
+            ph=e.get("ph"),
+        )
+        exp.peaks = [_dataclass_from(p, _core.Peak1D) for p in e.get("peaks") or []]
+        exp.peaks_2d = [_dataclass_from(p, _core.Peak2D) for p in e.get("peaks_2d") or []]
+        rec.experiments.append(exp)
+    rec.qc_notes = list(blob.get("qc_notes") or [])
+    # 归一化 QC 状态：table-parser 的 dry-run-ok 视为通过（已有结构/位移证据）
+    qs = blob.get("qc_status", "dry-run-ok")
+    rec.qc_status = {"dry-run-ok": "passed"}.get(qs, qs)
+    if rec.qc_status == "passed" and not any("table-parser" in n for n in rec.qc_notes):
+        rec.qc_notes.append("auto-dispatch: table-parser")
+    return rec
+
+
+def table_dryrun_to_records(d: dict, doi, journal, year):
+    """解析 table_parser.run() 返回 dict，产出 core 记录列表。"""
+    recs = []
+    for blob in d.get("records") or []:
+        recs.append(table_blob_to_records(blob, doi, journal, year))
+    return recs
+
+
+def merge_records(records):
+    """按 (sugar_type, iupac_short 规范化) 去重合并。
+
+    同一结构（如 16 残基 poly）两路都可能命中，保留信息更全的一条：
+    table-parser 记录优先（含残基/位移归属表）；同名行内记录去重。
+    """
+    key2i = {}
+    order = []
+    for idx, r in enumerate(records):
+        key = (r.sugar_type or "?", (r.iupac_short or "").strip().lower())
+        # 同 key 已存在：table-parser 优先；已是最优则保留先到者
+        if key in key2i:
+            keep = key2i[key]
+            cur_better = "table-parser" in (r.qc_notes or [])
+            old_better = "table-parser" in (records[keep].qc_notes or [])
+            if cur_better and not old_better:
+                key2i[key] = idx
+            continue
+        key2i[key] = idx
+        order.append(idx)
+    return [records[i] for i in sorted(order)]
+
+
+def dispatch_pdf(gle, pdf_path, doi, journal, year):
+    """自动分流解析：探测类型 -> 选路（/合并）-> 统一输出 core 记录。
+
+    返回 (mode, evidence, text, blocks, records)。
+    text/blocks 仅在行内（core）路径非空，表格路径为空（不影响入库与报告）。
+    """
+    # 旧式散装引擎（非 glycan_etl 包）无数据类，回退原始 core-only 路径
+    if not getattr(gle, "GlycanRecord", None):
+        text, blocks, records = parse_one_pdf(gle, pdf_path, doi, journal, year)
+        return "inline", {"mode": "inline", "fallback": "legacy-etl"}, text, blocks, records
+
+    probe_text = peek_pdf_text(pdf_path)
+    mode, ev = detect_pdf_type(text=None, pdf_path=pdf_path) if probe_text is None \
+        else detect_pdf_type(text=probe_text)
+    text = blocks = None
+    records = []
+
+    def _run_inline():
+        t = gle.extract_pdf_text(pdf_path)
+        bl = gle.split_blocks(t)
+        rr = []
+        for header, body in bl:
+            rr.extend(gle.parse_block(header, body, doi, journal, year))
+        return t, bl, rr
+
+    def _run_table():
+        try:
+            from glycan_etl import table_parser as tp
+            d = tp.run(pdf_path, verbose=False)
+            return d.get("records"), None, table_dryrun_to_records(d, doi, journal, year)
+        except SystemExit:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.warning("table-parser 解析失败（%s）: %s", os.path.basename(pdf_path), e)
+            return [], None, []
+
+    if mode == "table":
+        _recs_raw, _, trecs = _run_table()
+        if trecs:
+            records = trecs
+        else:  # fallback：表格主路 0 条 -> 补跑行内 core 合并
+            t, bl, irecs = _run_inline()
+            text, blocks = t, bl
+            records = merge_records(irecs + trecs)
+            ev["fallback"] = "table-empty-run-inline"
+    elif mode == "inline":
+        t, bl, irecs = _run_inline()
+        text, blocks = t, bl
+        records = irecs
+        if not irecs:  # fallback：行内主路 0 条 -> 补跑表格路合并
+            _r, _, trecs = _run_table()
+            records = merge_records(irecs + trecs)
+            ev["fallback"] = "inline-empty-run-table"
+    else:  # mixed：两路都跑并合并去重
+        t, bl, irecs = _run_inline()
+        text, blocks = t, bl
+        _r, _, trecs = _run_table()
+        records = merge_records(irecs + trecs)
+    return mode, ev, text, blocks, records
+
+
 # ---------------------------------------------------------------------------
 # 报告生成
 # ---------------------------------------------------------------------------
@@ -129,7 +402,7 @@ def dump_report(items, out_dir):
     st = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     csv_path = os.path.join(out_dir, f"manifest_{st}.csv")
     md_path = os.path.join(out_dir, f"manifest_{st}.md")
-    fields = ["file", "records", "flagged", "passed",
+    fields = ["file", "mode", "records", "flagged", "passed",
               "types", "qc_issues", "detail"]
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
@@ -139,6 +412,7 @@ def dump_report(items, out_dir):
     # Markdown 摘要
     ok = sum(1 for it in items if it["records"] > 0)
     total = sum(it["records"] for it in items)
+    modes = ",".join(sorted({str(it.get("mode", "-")) for it in items}))
     lines = [
         "# glycan_etl 批量执行报告",
         f"生成时间: {datetime.datetime.now().isoformat(timespec='seconds')}",
@@ -146,15 +420,16 @@ def dump_report(items, out_dir):
         f"- 处理 PDF 份数: **{len(items)}**",
         f"- 识别出记录的总 PDF 份数: **{ok}** / {len(items)}",
         f"- 共识别结构-谱图对: **{total}** 条",
+        f"- 自动分流模式: **{modes or '-'}**（table=表格型 / inline=行内型 / mixed=双路合并）",
         "",
-        "| 文件 | 记录数 | flagged | passed | 类型分布 | QC问题 | 明细 |",
-        "|------|-------:|-------:|-------:|---------|--------|------|",
+        "| 文件 | 分流模式 | 记录数 | flagged | passed | 类型分布 | QC问题 | 明细 |",
+        "|------|---------|-------:|-------:|-------:|---------|--------|------|",
     ]
     for it in items:
         lines.append(
-            f"| {os.path.basename(it['file'])} | {it['records']} | {it['flagged']} | "
-            f"{it['passed']} | {it['types'] or '-'} | {it['qc_issues'] or '-'} | "
-            f"{(it['detail'] or '-')[:120]} |"
+            f"| {os.path.basename(it['file'])} | {it.get('mode', '-')} | {it['records']} | "
+            f"{it['flagged']} | {it['passed']} | {it['types'] or '-'} | "
+            f"{it['qc_issues'] or '-'} | {(it['detail'] or '-')[:120]} |"
         )
     lines.append("")
     lines.append("> 0 条的 PDF 请优先检查文本层质量或结构写法；详细 JSON 见同目录 *_records.json")
@@ -222,12 +497,17 @@ def main():
         year = m.get("year", default_year)
         log.info("[%d/%d] %s (doi=%s)", i, len(pdfs), base, doi)
         try:
-            text, blocks, records = parse_one_pdf(gle, pdf, doi, journal, year)
+            mode, evidence, text, blocks, records = dispatch_pdf(gle, pdf, doi, journal, year)
         except Exception as e:  # noqa: BLE001
             log.error("解析失败: %s (%s)", base, e)
-            items.append({"file": pdf, "records": 0, "flagged": 0, "passed": 0,
+            items.append({"file": pdf, "mode": "-", "records": 0, "flagged": 0, "passed": 0,
                           "types": "-", "qc_issues": f"ERROR: {e}", "detail": ""})
             continue
+        fb = evidence.get("fallback")
+        if fb:
+            log.info("  [%s] 分流 %s（fallback: %s）", base, mode, fb)
+        else:
+            log.info("  [%s] 分流 %s", base, mode)
         flagged = sum(1 for r in records if r.qc_status == "flagged")
         passed = sum(1 for r in records if r.qc_status == "passed")
         types = ",".join(sorted({r.sugar_type for r in records}))
@@ -235,8 +515,8 @@ def main():
         detail = ", ".join(f"{r.iupac_short}({r.sugar_type},{len(r.experiments)}exp)"
                            for r in records)
         items.append({
-            "file": pdf, "records": len(records), "flagged": flagged, "passed": passed,
-            "types": types, "qc_issues": issues[:400], "detail": detail,
+            "file": pdf, "mode": mode, "records": len(records), "flagged": flagged,
+            "passed": passed, "types": types, "qc_issues": issues[:400], "detail": detail,
         })
         if args.save_json:
             with open(os.path.join(out_dir, f"{os.path.splitext(base)[0]}_records.json"),
