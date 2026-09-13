@@ -174,6 +174,7 @@ def pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
             pages.append({
                 "page": i, "n_pages": n_pages, "text": text,
                 "words": words, "lines": lines,
+                "width": page.width, "height": page.height,
             })
     return pages
 
@@ -691,6 +692,26 @@ def parse_linkages(full_text: str, residue_entries: Optional[List[dict]] = None
 # ----------------------------------------------------------------------------
 # Dry-run 组装
 # ----------------------------------------------------------------------------
+def _poly_summary_name(residues: List[Residue]) -> str:
+    """文献未给出可读多糖名时，用残基组成构造可区分的结构标识。
+
+    例: 16 残基的山楂多糖 → ``poly[GalA x6,Gal x3,Ara x3,Rha x2,GlcA]``。
+    这比统一占位串 "unknown polysaccharide" 有用得多：下游 AI 平台回查 /
+    展示时至少能区分不同结构，并与 core.resolve_glycoct() 的结构指纹互证。
+    """
+    counts: "OrderedDict[str, int]" = OrderedDict()
+    for r in residues:
+        name = (r.monosaccharide_name or "").strip()
+        if name:
+            counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return "unresolved polysaccharide"
+    parts = ",".join(
+        f"{k} x{v}" if v > 1 else k
+        for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+    return f"poly[{parts}]"
+
+
 def build_record(meta: dict, kv_norm: dict, entries: List[dict],
                  linkages: List[dict], nmr_page: int) -> GlycanRecord:
     rec = GlycanRecord()
@@ -746,6 +767,12 @@ def build_record(meta: dict, kv_norm: dict, entries: List[dict],
     if c_exp.peaks:
         rec.experiments.append(c_exp)
 
+    # 文献没给出可读多糖名时，用残基组成构造可区分的结构标识，
+    # 避免所有多糖都写成同一个 "unknown polysaccharide" 占位串。
+    if not rec.iupac_short or str(rec.iupac_short).strip().lower() in (
+            "unknown polysaccharide", "unknown", "unresolved polysaccharide"):
+        rec.iupac_short = _poly_summary_name(rec.residues)
+
     rec.qc_notes.append("table-parser: molecular table (Table-like 1)")
     rec.qc_notes.append(f"table-parser: shift table with {len(entries)} residues")
     rec.qc_status = "dry-run-ok"
@@ -765,6 +792,62 @@ def _label(pos: str, kind: str) -> str:
 # ----------------------------------------------------------------------------
 # 元数据（标题/期刊/年份/DOI/多糖名）
 # ----------------------------------------------------------------------------
+JOURNAL_PAT = re.compile(
+    r"(International\s+Journal\s+of\s+Biological\s+Macromolecules"
+    r"|Carbohydrate\s+Polymers|Food\s+Hydrocolloids"
+    r"|Journal\s+of\s+Agricultural\s+and\s+Food\s+Chemistry"
+    r"|Food\s+Chemistry|Carbohydrate\s+Research)",
+    re.I)
+
+# 多糖名提取要排除的"非名称"词（避免 'of a polysaccharide' → 'of'）
+_NAME_STOPWORDS = {
+    "a", "an", "the", "of", "and", "or", "in", "on", "for", "from", "this",
+    "that", "its", "new", "novel", "crude", "one", "two", "various", "several",
+    "structural", "characterisation", "characterization", "structure", "study",
+    "extraction", "purification", "analysis", "effects", "effect", "role",
+}
+
+
+def _despace(s: str) -> str:
+    """还原被字间距拆散的文本（Elsevier 页眉常抽成 'J o u r n a l'）。"""
+    return re.sub(r"(?<=\b[A-Za-z])\s(?=[A-Za-z]\b)", "", s)
+
+
+def extract_title(pages: List[dict]) -> Optional[str]:
+    """按「最大字号 + 位于页面上半部」取标题行。
+
+    旧实现取「首页第一条长度 > 40 的文本行」：在 Elsevier 版式上会稳定
+    命中页眉的期刊名（期刊名被字间距拆开后恰好超长），于是一篇多糖论文
+    的 title 变成 "International Journal of Biological Macromolecules"，
+    并连带使多糖名提取（依赖 title 中的 'X polysaccharide'）一起失效。
+    """
+    if not pages:
+        return None
+    pg = pages[0]
+    words = pg.get("words") or []
+    if not words:
+        return None
+    sizes = [w.get("size") or 0 for w in words]
+    mx = max(sizes) if sizes else 0
+    if mx <= 0:
+        return None
+    height = pg.get("height") or max((w.get("bottom") or 0) for w in words)
+    head = [w for w in words
+            if (w.get("size") or 0) >= mx - 0.6
+            and (w.get("top") or 0) < height * 0.55]
+    if not head:
+        return None
+    rows = cluster_rows(head, dy=ROW_DY)
+    if not rows:
+        return None
+    cand = max(rows, key=lambda r: len(r["text"]))
+    txt = re.sub(r"\s+", " ", cand["text"]).strip()
+    if len(txt) < 25 or JOURNAL_PAT.search(txt) or re.search(
+            r"contents|elsevier|springer|wiley|volume\s+\d+|https?://|@", txt, re.I):
+        return None
+    return txt or None
+
+
 def extract_meta(pages: List[dict]) -> dict:
     first = pages[0]["text"] if pages else ""
     meta = {"doi": None, "journal": None, "year": None, "title": None,
@@ -772,26 +855,28 @@ def extract_meta(pages: List[dict]) -> dict:
     m = re.search(r"10\.\d{4,9}/[^\s,;\]]+", first)
     if m:
         meta["doi"] = m.group(0).rstrip(".")
-    m = re.search(r"(International Journal of Biological Macromolecules"
-                  r"|Carbohydrate Polymers|Food Hydrocolloids"
-                  r"|Journal of Agricultural and Food Chemistry|Food Chemistry"
-                  r"|International Journal of Biological Macromolecules)", first)
+    # 期刊名可能被字间距拆散，先还原再匹配
+    m = JOURNAL_PAT.search(_despace(first)) or JOURNAL_PAT.search(first)
     if m:
-        meta["journal"] = m.group(1)
+        meta["journal"] = re.sub(r"\s+", " ", m.group(1)).strip()
     m = re.search(r"\(?(20\d{2})\)?", first)
     if m:
         meta["year"] = int(m.group(1))
-    lines = [l.strip() for l in first.splitlines() if l.strip()]
-    for l in lines[1:]:
-        if len(l) > 40 and not re.search(r"@|href|Contents", l):
-            meta["title"] = l
-            break
-    # 多糖名：标题中的 'polysaccharide' 前词，或 'HP'-style 缩写
+    meta["title"] = extract_title(pages)
+    if not meta["title"]:
+        # 兜底：旧的长行启发式
+        lines = [l.strip() for l in first.splitlines() if l.strip()]
+        for l in lines[1:]:
+            if len(l) > 40 and not re.search(r"@|href|Contents", l):
+                meta["title"] = l
+                break
+    # 多糖名：标题中紧邻 'polysaccharide' 的那个词（如 'hawthorn polysaccharide'）
     if meta["title"]:
-        m = re.search(r"([A-Za-z]+(?:\s+[A-Za-z]+){0,2}?)\s+polysaccharide",
-                      meta["title"], re.I)
+        m = re.search(r"([A-Za-z][\w-]*)\s+polysaccharide", meta["title"], re.I)
         if m:
-            meta["polysaccharide"] = m.group(1)
+            cand = m.group(1).strip()
+            if cand.lower() not in _NAME_STOPWORDS:
+                meta["polysaccharide"] = cand
     return meta
 
 

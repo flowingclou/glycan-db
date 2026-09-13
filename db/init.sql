@@ -588,3 +588,41 @@ $$;
 
 -- 5.3 查看当前质控状态分布:
 --      SELECT qc_status, count(*) FROM nmr_experiments GROUP BY qc_status;
+
+
+-- ============================================================================
+-- 以下为 V4 段（向量检索能力 / 多糖性质溯源 / 检索索引）
+-- 来源: migrations/v004_vector_and_provenance.sql
+-- ============================================================================
+-- 背景: 早期版本把 pgvector 能力只写进 README 与 embeddings.py, 却没有
+--       任何 DDL 创建 nmr_shifts_1d.embedding 列 —— 于是
+--       `python3 glycan_etl/embeddings.py` 必然报 "column embedding does not
+--       exist", README §5 的近邻检索 SQL 也无法执行。本段补齐该能力。
+-- ============================================================================
+
+-- 4.1 一维位移记录的向量列（BGE-M3 = 1024 维）
+ALTER TABLE nmr_shifts_1d
+    ADD COLUMN IF NOT EXISTS embedding vector(1024);
+
+CREATE INDEX IF NOT EXISTS idx_nmr_shifts_1d_embedding_hnsw
+    ON nmr_shifts_1d USING hnsw (embedding vector_cosine_ops);
+
+-- 4.2 polysaccharide_props 溯源列（同一结构被多篇文献报道时可区分来源）
+ALTER TABLE polysaccharide_props
+    ADD COLUMN IF NOT EXISTS source_id BIGINT REFERENCES literature(source_id);
+
+CREATE INDEX IF NOT EXISTS idx_poly_props_sugar ON polysaccharide_props(sugar_id);
+
+-- 4.3 常用检索索引（AI 平台回查「候选结构 vs 真值」的主要过滤条件）
+CREATE INDEX IF NOT EXISTS idx_sugars_iupac        ON sugars(iupac_short);
+CREATE INDEX IF NOT EXISTS idx_exp_nmr_type        ON nmr_experiments(nmr_type);
+CREATE INDEX IF NOT EXISTS idx_exp_solvent         ON nmr_experiments(solvent);
+CREATE INDEX IF NOT EXISTS idx_shift_nucleus_ppm   ON nmr_shifts_1d(nucleus, shift_ppm);
+CREATE INDEX IF NOT EXISTS idx_shift_anomeric      ON nmr_shifts_1d(is_anomeric)
+    WHERE is_anomeric;
+CREATE INDEX IF NOT EXISTS idx_corr_2d_linkage     ON nmr_correlations_2d(linkage_evidence)
+    WHERE linkage_evidence;
+
+-- 4.4 幂等约束: 同一 (结构, 文献, 谱类型, 溶剂) 只应有一条实验头
+CREATE UNIQUE INDEX IF NOT EXISTS uq_exp_sugar_source_type_solvent
+    ON nmr_experiments(sugar_id, source_id, nmr_type, solvent);

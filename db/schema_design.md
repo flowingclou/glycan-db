@@ -131,10 +131,11 @@ Parquet 导出（供 AI 训练）+ PostgreSQL 在线查询
 | multiplicity | TEXT | | 多重峰类型（s/d/t/q/m/br 等） |
 | j_coupling_hz | NUMERIC(7,2) | | J 耦合常数 |
 | integration | NUMERIC(6,2) | | 积分/氢计数（¹H） |
-| assignment_residue | TEXT | | 归属残基（如 Glc-A） |
+| assignment_residue | TEXT | *尚未落地* | 归属残基（如 Glc-A）；当前实现放在 `assignment_position` 文本里 |
 | assignment_position | TEXT | | 归属位置（如 H1、C1、C4 等） |
-| assignment_confidence | TEXT | CHECK IN ('confirmed_2d','predicted','unassigned') | 归属置信度 |
+| assignment_confidence | TEXT | *尚未落地* | 归属置信度；当前用 `nmr_experiments.qc_status` + `sugars.structure_confidence` 表达 |
 | is_anomeric | BOOLEAN | DEFAULT FALSE | 是否异头碳/氢（糖专属关键标记） |
+| embedding | vector(1024) | | BGE-M3 语义向量（pgvector），由 `migrations/v004` 创建并建 HNSW 余弦索引 |
 
 ### 3.5 `nmr_correlations_2d` —— 二维谱相关峰表（寡/多糖核心扩展）
 
@@ -283,9 +284,14 @@ CREATE TABLE nmr_shifts_1d (
     assignment_residue  TEXT,
     assignment_position TEXT,
     assignment_confidence TEXT CHECK (assignment_confidence IN ('confirmed_2d','predicted','unassigned')),
-    is_anomeric         BOOLEAN DEFAULT FALSE
+    is_anomeric         BOOLEAN DEFAULT FALSE,
+    -- 语义检索向量（pgvector, BGE-M3 = 1024 维）; 见 migrations/v004
+    embedding           vector(1024)
 );
 CREATE INDEX idx_shift_exp ON nmr_shifts_1d(experiment_id);
+-- 余弦近邻索引（HNSW）
+CREATE INDEX idx_nmr_shifts_1d_embedding_hnsw
+    ON nmr_shifts_1d USING hnsw (embedding vector_cosine_ops);
 
 -- 4.5 二维谱相关峰
 CREATE TABLE nmr_correlations_2d (

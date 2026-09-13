@@ -93,47 +93,77 @@ INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_fo
 ('mono', 'RES 1b:b-dgalp-1:5|2:x', encode(digest('RES 1b:b-dgalp-1:5|2:x', 'sha256'), 'hex'),
  'β-D-Galp', 'C6H12O6', 180.1559, 'b', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'),
 ('mono', 'RES 1b:b-dglcpnac-1:5|2:x', encode(digest('RES 1b:b-dglcpnac-1:5|2:x', 'sha256'), 'hex'),
- 'β-D-GlcpNAc', 'C8H15NO6', 221.2078, 'b', 'confirmed_2d', TRUE, '10.1016/j.carres.2019.107800');
+ 'β-D-GlcpNAc', 'C8H15NO6', 221.2078, 'b', 'confirmed_2d', TRUE, '10.1016/j.carres.2019.107800')
+ON CONFLICT (glycoct) DO NOTHING;
 
 -- 2.3 谱图实验记录（D2O, 500 MHz, 25°C）
+-- 说明: 每条 INSERT 均带 NOT EXISTS 防重, 使本迁移可重复执行不报错、不产生脏数据。
 INSERT INTO nmr_experiments (sugar_id, source_id, nmr_type, solvent, frequency_mhz, temperature_c, ph, qc_status)
 SELECT s.sugar_id, l.source_id, '1H', 'D2O', 500.0, 25.0, 7.0, 'passed'
-FROM sugars s, literature l WHERE s.iupac_short = 'α-D-Glcp' AND l.doi = '10.1021/acs.joc.0c00000';
+FROM sugars s, literature l
+WHERE s.iupac_short = 'α-D-Glcp' AND l.doi = '10.1021/acs.joc.0c00000'
+  AND NOT EXISTS (SELECT 1 FROM nmr_experiments e
+                  WHERE e.sugar_id = s.sugar_id AND e.source_id = l.source_id
+                    AND e.nmr_type = '1H' AND e.solvent = 'D2O');
 
 INSERT INTO nmr_experiments (sugar_id, source_id, nmr_type, solvent, frequency_mhz, temperature_c, ph, qc_status)
 SELECT s.sugar_id, l.source_id, '13C', 'D2O', 500.0, 25.0, 7.0, 'passed'
-FROM sugars s, literature l WHERE s.iupac_short = 'α-D-Glcp' AND l.doi = '10.1021/acs.joc.0c00000';
+FROM sugars s, literature l
+WHERE s.iupac_short = 'α-D-Glcp' AND l.doi = '10.1021/acs.joc.0c00000'
+  AND NOT EXISTS (SELECT 1 FROM nmr_experiments e
+                  WHERE e.sugar_id = s.sugar_id AND e.source_id = l.source_id
+                    AND e.nmr_type = '13C' AND e.solvent = 'D2O');
 
 INSERT INTO nmr_experiments (sugar_id, source_id, nmr_type, solvent, frequency_mhz, temperature_c, ph, qc_status)
 SELECT s.sugar_id, l.source_id, '1H', 'D2O', 500.0, 25.0, 7.0, 'passed'
-FROM sugars s, literature l WHERE s.iupac_short = 'β-D-Glcp' AND l.doi = '10.1021/acs.joc.0c00000';
+FROM sugars s, literature l
+WHERE s.iupac_short = 'β-D-Glcp' AND l.doi = '10.1021/acs.joc.0c00000'
+  AND NOT EXISTS (SELECT 1 FROM nmr_experiments e
+                  WHERE e.sugar_id = s.sugar_id AND e.source_id = l.source_id
+                    AND e.nmr_type = '1H' AND e.solvent = 'D2O');
 
 INSERT INTO nmr_experiments (sugar_id, source_id, nmr_type, solvent, frequency_mhz, temperature_c, ph, qc_status)
 SELECT s.sugar_id, l.source_id, '13C', 'D2O', 500.0, 25.0, 7.0, 'passed'
-FROM sugars s, literature l WHERE s.iupac_short = 'β-D-Glcp' AND l.doi = '10.1021/acs.joc.0c00000';
+FROM sugars s, literature l
+WHERE s.iupac_short = 'β-D-Glcp' AND l.doi = '10.1021/acs.joc.0c00000'
+  AND NOT EXISTS (SELECT 1 FROM nmr_experiments e
+                  WHERE e.sugar_id = s.sugar_id AND e.source_id = l.source_id
+                    AND e.nmr_type = '13C' AND e.solvent = 'D2O');
 
 -- 2.4 一维峰数据（真实文献位移, D2O 25°C）
 -- α-D-Glc: ¹H 异头氢 5.22 (d, J=3.8); ¹³C 异头碳 92.9
 INSERT INTO nmr_shifts_1d (experiment_id, nucleus, shift_ppm, multiplicity, j_coupling_hz, integration, assignment_position, is_anomeric)
 SELECT e.experiment_id, '1H', 5.220, 'd', 3.8, 1.0, 'H1', TRUE
 FROM nmr_experiments e JOIN sugars s ON e.sugar_id = s.sugar_id
-WHERE s.iupac_short = 'α-D-Glcp' AND e.nmr_type = '1H';
+WHERE s.iupac_short = 'α-D-Glcp' AND e.nmr_type = '1H'
+  AND NOT EXISTS (SELECT 1 FROM nmr_shifts_1d sh
+                  WHERE sh.experiment_id = e.experiment_id
+                    AND sh.nucleus = '1H' AND sh.shift_ppm = 5.220);
 
 INSERT INTO nmr_shifts_1d (experiment_id, nucleus, shift_ppm, multiplicity, j_coupling_hz, integration, assignment_position, is_anomeric)
 SELECT e.experiment_id, '13C', 92.900, 'd', NULL, NULL, 'C1', TRUE
 FROM nmr_experiments e JOIN sugars s ON e.sugar_id = s.sugar_id
-WHERE s.iupac_short = 'α-D-Glcp' AND e.nmr_type = '13C';
+WHERE s.iupac_short = 'α-D-Glcp' AND e.nmr_type = '13C'
+  AND NOT EXISTS (SELECT 1 FROM nmr_shifts_1d sh
+                  WHERE sh.experiment_id = e.experiment_id
+                    AND sh.nucleus = '13C' AND sh.shift_ppm = 92.900);
 
 -- β-D-Glc: ¹H 异头氢 4.64 (d, J=7.9); ¹³C 异头碳 96.7
 INSERT INTO nmr_shifts_1d (experiment_id, nucleus, shift_ppm, multiplicity, j_coupling_hz, integration, assignment_position, is_anomeric)
 SELECT e.experiment_id, '1H', 4.640, 'd', 7.9, 1.0, 'H1', TRUE
 FROM nmr_experiments e JOIN sugars s ON e.sugar_id = s.sugar_id
-WHERE s.iupac_short = 'β-D-Glcp' AND e.nmr_type = '1H';
+WHERE s.iupac_short = 'β-D-Glcp' AND e.nmr_type = '1H'
+  AND NOT EXISTS (SELECT 1 FROM nmr_shifts_1d sh
+                  WHERE sh.experiment_id = e.experiment_id
+                    AND sh.nucleus = '1H' AND sh.shift_ppm = 4.640);
 
 INSERT INTO nmr_shifts_1d (experiment_id, nucleus, shift_ppm, multiplicity, j_coupling_hz, integration, assignment_position, is_anomeric)
 SELECT e.experiment_id, '13C', 96.700, 'd', NULL, NULL, 'C1', TRUE
 FROM nmr_experiments e JOIN sugars s ON e.sugar_id = s.sugar_id
-WHERE s.iupac_short = 'β-D-Glcp' AND e.nmr_type = '13C';
+WHERE s.iupac_short = 'β-D-Glcp' AND e.nmr_type = '13C'
+  AND NOT EXISTS (SELECT 1 FROM nmr_shifts_1d sh
+                  WHERE sh.experiment_id = e.experiment_id
+                    AND sh.nucleus = '13C' AND sh.shift_ppm = 96.700);
 
 -- ----------------------------------------------------------------------------
 -- 3. 验证查询示例

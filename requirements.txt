@@ -5,7 +5,11 @@
 pdfplumber>=0.10.0
 
 # PostgreSQL 连接（core / batch_etl / embeddings）
+# 注：pgvector 是数据库侧扩展，不需要 Python 包，由 db/init.sql 或 migrations/v004 创建
 psycopg2-binary>=2.9.0
 
 # YAML 配置解析（core / batch_etl）
 PyYAML>=6.0
+
+# 实测通过组合: Python 3.14 + pdfplumber 0.11.10 + psycopg2-binary 2.9.13
+#              + PostgreSQL 16.15 + pgvector 0.8.6

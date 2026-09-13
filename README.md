@@ -52,9 +52,10 @@ pip install -r requirements.txt
 ### 2.3 自检
 
 ```bash
-python3 tests/run_tests.py     # py_compile 全仓校验 + batch_etl --self-test
+python3 tests/run_tests.py     # py_compile 全仓校验 + 回归测试 + batch_etl --self-test
 # 或单跑
 python3 pipelines/batch_etl.py --self-test   # 输出 SELF-TEST PASS 即正常
+python3 tests/test_regressions.py            # 11 项防回退回归测试（不依赖数据库）
 ```
 
 ### 2.4 批量解析 PDF
@@ -72,6 +73,17 @@ python3 pipelines/batch_etl.py --dir "/path/to/目录" --config pipelines/config
 
 多份不同文献批量入库时，推荐用 `--meta meta.yaml` 按文件名逐份指定 doi/journal/year，避免溯源串档。
 
+#### 入库行为说明（重要）
+
+- **重复导入是安全的**：同一份 PDF 反复入库不会重复累积数据。脚本按
+  `(结构, 文献, 谱类型, 溶剂)` 先清理旧的派生行再重写，可放心重跑。
+- **质控命中默认仍入库**：QC 判定为 `flagged` 的记录会写入库并保留 `qc_status='flagged'`
+  标记（便于回溯与人工复核）。若确实要丢弃，加 `--skip-flagged`。
+- **结构编码缺失不会串档**：文献未给出可用 GlycoCT 时，脚本用
+  结构指纹 + DOI 生成确定性占位编码（`UNRESOLVED:...`），不同结构彼此隔离。
+  代价是同一结构被多篇文献报道时会各占一条记录，待补全真实 GlycoCT 后再归并——
+  这比"不同结构被错并成一条、谱图混在一起"安全得多。
+
 ---
 
 ## 3. 目录结构
@@ -85,11 +97,13 @@ glycan-db/
 ├── docker-compose.yml      # PostgreSQL16 + pgvector 一键环境（挂载 init.sql）
 ├── .gitignore              # 排除缓存 / 虚拟环境 / 真实密钥配置文件
 ├── db/
-│   ├── init.sql            # 三份迁移合并后的幂等一键建库脚本（可重复执行）
+│   ├── init.sql            # 四份迁移合并后的幂等一键建库脚本（可重复执行）
 │   ├── migrations/         # 分版本迁移 SQL
 │   │   ├── v001_mvp.sql    #   单糖四表（sugars/literature/nmr_experiments/nmr_shifts_1d）
 │   │   ├── v002_extend.sql #   残基/2D 相关峰/物化/多糖性质扩展
-│   │   └── v003_qc.sql     #   质控触发器 R1-R10 + 全库校验函数
+│   │   ├── v003_qc.sql     #   质控触发器 R1-R10 + 全库校验函数
+│   │   └── v004_vector_and_provenance.sql
+│   │                       #   pgvector embedding 列 + HNSW 索引 + 溯源列
 │   └── schema_design.md    # 数据库 schema 设计文档
 ├── glycan_etl/             # 解析引擎包
 │   ├── __init__.py         #   包初始化 + __version__
@@ -100,7 +114,8 @@ glycan-db/
 │   ├── batch_etl.py        # 批量执行器（自检/批量 dry-run/批量入库/汇总报告）
 │   └── config.yaml         # 配置示例（含数据库连接占位符与溯源字段）
 ├── tests/
-│   └── run_tests.py        # 自检入口（py_compile + self-test）
+│   ├── run_tests.py        # 自检入口（py_compile + 回归测试 + self-test）
+│   └── test_regressions.py # 防回退回归测试（结构覆盖/命名/标题抽取）
 └── docs/
     └── skill_guide.md      # glycan-etl 技能使用说明（可用即用指南）
 ```
@@ -126,13 +141,19 @@ glycan-db/
 - `--config`：正式入库连接配置；缺省自动降级为 dry-run
 - `--meta`：按文件名逐份指定文献溯源
 - `--save-json`：额外输出完整解析明细
+- `--skip-flagged`：质控违规记录不入库（默认入库并标记，见 §2.4）
 
 ### 4.3 数据库 `db/`
 
-- `init.sql` 为三份迁移（v001 MVP → v002 扩展 → v003 质控）合并后的**幂等脚本**：
-  `CREATE EXTENSION IF NOT EXISTS vector/pgcrypto` + 全部 `CREATE TABLE IF NOT EXISTS` + 种子数据
-  `ON CONFLICT / NOT EXISTS` 防重，**可重复执行不报错、不产生脏数据**。
-- 手工分步建库可依次执行 `migrations/v001_mvp.sql → v002_extend.sql → v003_qc.sql`。
+- `init.sql` 为四份迁移（v001 MVP → v002 扩展 → v003 质控 → v004 向量与溯源）合并后的
+  **幂等脚本**：`CREATE EXTENSION IF NOT EXISTS vector/pgcrypto` + 全部 `CREATE TABLE IF NOT EXISTS`
+  + 种子数据 `ON CONFLICT / NOT EXISTS` 防重，**可重复执行不报错、不产生脏数据**（已实测连续执行 3 次）。
+- 手工分步建库可依次执行：
+  `migrations/v001_mvp.sql → v002_extend.sql → v003_qc.sql → v004_vector_and_provenance.sql`。
+  四份迁移同样逐条带 `NOT EXISTS` 防重，可重复执行。
+- **向量检索能力来自 v004**：`nmr_shifts_1d.embedding vector(1024)` 列与 HNSW 余弦索引
+  定义在 v004 中。缺了这一步，`glycan_etl/embeddings.py` 会直接报
+  `column "embedding" does not exist`，README §5 的近邻检索 SQL 也无法执行。
 
 ---
 

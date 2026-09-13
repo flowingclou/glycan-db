@@ -32,6 +32,7 @@ v3.1 修复四项（2026-09-12）:
 依赖: pip install pdfplumber psycopg2-binary pyyaml
 """
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -723,8 +724,50 @@ def qc_precheck(rec: GlycanRecord) -> None:
 # 阶段6: 写入 PostgreSQL（1D + 2D, 修复局限3）
 # ============================================================================
 
+def _structure_signature(rec: GlycanRecord) -> str:
+    """构造可复现的结构指纹（解析不出 GlycoCT 时用作去重键）。"""
+    parts = [rec.sugar_type or "?", (rec.iupac_short or "?").strip().lower()]
+    if rec.molecular_formula:
+        parts.append(rec.molecular_formula.strip())
+    if rec.residues:
+        parts.append(";".join(
+            f"{r.residue_seq}:{r.monosaccharide_name}:{r.ring_form}:{r.anomer}:"
+            f"{r.parent_carbon}:{r.linkage_branch}" for r in rec.residues))
+    return "|".join(parts)
+
+
+def resolve_glycoct(rec: GlycanRecord) -> str:
+    """返回入库用的结构编码；解析不出 GlycoCT 时生成**确定性占位符**。
+
+    占位符必须逐结构唯一。旧实现回退成空字符串, 于是所有"无 GlycoCT"的
+    结构都撞上 sugars.glycoct 的 UNIQUE 约束, 被 ON CONFLICT 互相覆盖:
+    多篇文献入库时只有最后一条结构存活, 其余记录的谱图被错误挂到同一条
+    结构上(结构↔谱图配对错乱)。占位符含结构指纹, 因此不同结构彼此隔离,
+    同一结构重复导入仍能正确命中同一条记录。
+    """
+    if rec.glycoct and rec.glycoct.strip():
+        return rec.glycoct.strip()
+    digest = hashlib.sha256(_structure_signature(rec).encode("utf-8")).hexdigest()[:16]
+    doi = (rec.doi or "UNKNOWN").strip() or "UNKNOWN"
+    return f"UNRESOLVED:{rec.sugar_type or 'unknown'}:{doi}:{digest}"
+
+
+_COLUMN_CACHE: dict = {}
+
+
+def _table_columns(cur, table: str) -> set:
+    """读取表列名（兼容加过 / 未加 v004 迁移的两种 schema）。"""
+    if table not in _COLUMN_CACHE:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+            (table,),
+        )
+        _COLUMN_CACHE[table] = {row[0] for row in cur.fetchall()}
+    return _COLUMN_CACHE[table]
+
+
 def insert_record(conn, rec: GlycanRecord) -> None:
-    """将一条结构-谱图对写入 v1/v2 表结构。"""
+    """将一条结构-谱图对写入 v1/v2 表结构（幂等: 重复导入不重复累积）。"""
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO literature (doi, journal, year) VALUES (%s,%s,%s) "
@@ -733,22 +776,49 @@ def insert_record(conn, rec: GlycanRecord) -> None:
     )
     source_id = cur.fetchone()[0]
     has_2d = any(e.nucleus == "2D" for e in rec.experiments)
+    glycoct = resolve_glycoct(rec)
     cur.execute(
         "INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula, "
         "molecular_weight, anomer, structure_confidence, stereochemistry_defined, first_seen_doi) "
         "VALUES (%s,%s, encode(digest(%s,'sha256'),'hex'),%s,%s,%s,%s,%s,%s,%s) "
-        "ON CONFLICT (glycoct) DO UPDATE SET iupac_short=EXCLUDED.iupac_short RETURNING sugar_id",
-        (rec.sugar_type, rec.glycoct or "", rec.glycoct or "", rec.iupac_short,
+        # 命中同一结构时只"补空 / 升级", 不覆盖已有的可读结构名
+        "ON CONFLICT (glycoct) DO UPDATE SET "
+        "  iupac_short = CASE WHEN sugars.iupac_short IS NULL OR sugars.iupac_short = '' "
+        "                      THEN EXCLUDED.iupac_short ELSE sugars.iupac_short END, "
+        "  structure_confidence = CASE WHEN sugars.structure_confidence = 'confirmed_2d' "
+        "                              THEN sugars.structure_confidence "
+        "                              ELSE EXCLUDED.structure_confidence END, "
+        "  updated_at = now() "
+        "RETURNING sugar_id",
+        (rec.sugar_type, glycoct, glycoct, rec.iupac_short,
          rec.molecular_formula, rec.molecular_weight, rec.anomer,
          "confirmed_2d" if has_2d else "confirmed_1d",
          rec.anomer is not None, rec.doi),
     )
     sugar_id = cur.fetchone()[0]
-    # v3: residues 残基表
+
+    # 幂等: 先清掉本 (结构, 文献) 的旧派生行再重写, 避免重复导入累积脏数据。
+    # nmr_shifts_1d / nmr_correlations_2d 由外键 ON DELETE CASCADE 一并清理。
+    cur.execute("DELETE FROM nmr_experiments WHERE sugar_id=%s AND source_id=%s",
+                (sugar_id, source_id))
+    cur.execute("DELETE FROM physicochemical WHERE sugar_id=%s AND source_id=%s",
+                (sugar_id, source_id))
+    pp_cols = _table_columns(cur, "polysaccharide_props")
+    if "source_id" in pp_cols:
+        cur.execute("DELETE FROM polysaccharide_props WHERE sugar_id=%s AND source_id=%s",
+                    (sugar_id, source_id))
+    else:
+        cur.execute("DELETE FROM polysaccharide_props WHERE sugar_id=%s", (sugar_id,))
+
+    # v3: residues 残基表（按 (sugar_id, residue_seq) 覆盖）
     for r in rec.residues:
         cur.execute(
             "INSERT INTO residues (sugar_id, residue_seq, monosaccharide_name, ring_form, anomer, "
-            "is_reducing_end, parent_carbon, linkage_branch) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            "is_reducing_end, parent_carbon, linkage_branch) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
+            "ON CONFLICT (sugar_id, residue_seq) DO UPDATE SET "
+            "  monosaccharide_name=EXCLUDED.monosaccharide_name, ring_form=EXCLUDED.ring_form, "
+            "  anomer=EXCLUDED.anomer, is_reducing_end=EXCLUDED.is_reducing_end, "
+            "  parent_carbon=EXCLUDED.parent_carbon, linkage_branch=EXCLUDED.linkage_branch",
             (sugar_id, r.residue_seq, r.monosaccharide_name, r.ring_form, r.anomer,
              r.is_reducing_end, r.parent_carbon, r.linkage_branch),
         )
@@ -764,14 +834,20 @@ def insert_record(conn, rec: GlycanRecord) -> None:
     # v3: polysaccharide_props 多糖专属性质
     if rec.poly_props:
         pp = rec.poly_props
+        cols = ["sugar_id", "repeat_unit_formula", "degree_of_polymerization",
+                "molecular_weight_mn", "molecular_weight_mw", "polydispersity",
+                "monosaccharide_ratio", "backbone", "branching"]
+        vals = [sugar_id, pp.repeat_unit_formula, pp.degree_of_polymerization,
+                pp.molecular_weight_mn, pp.molecular_weight_mw, pp.polydispersity,
+                json.dumps(pp.monosaccharide_ratio) if pp.monosaccharide_ratio else None,
+                pp.backbone, pp.branching]
+        if "source_id" in pp_cols:
+            cols.append("source_id")
+            vals.append(source_id)
+        placeholders = ",".join(["%s"] * len(vals))
         cur.execute(
-            "INSERT INTO polysaccharide_props (sugar_id, repeat_unit_formula, degree_of_polymerization, "
-            "molecular_weight_mn, molecular_weight_mw, polydispersity, monosaccharide_ratio, backbone, branching) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (sugar_id, pp.repeat_unit_formula, pp.degree_of_polymerization,
-             pp.molecular_weight_mn, pp.molecular_weight_mw, pp.polydispersity,
-             json.dumps(pp.monosaccharide_ratio) if pp.monosaccharide_ratio else None,
-             pp.backbone, pp.branching),
+            f"INSERT INTO polysaccharide_props ({','.join(cols)}) VALUES ({placeholders})",
+            vals,
         )
     for exp in rec.experiments:
         if exp.nucleus == "2D":
@@ -818,7 +894,8 @@ def insert_record(conn, rec: GlycanRecord) -> None:
 # 主流程
 # ============================================================================
 
-def run_etl(pdf_path: str, config: dict, dry_run: bool = False):
+def run_etl(pdf_path: str, config: dict, dry_run: bool = False,
+            skip_flagged: bool = False):
     log.info("阶段1: 抽取 PDF 文本 %s", pdf_path)
     text = extract_pdf_text(pdf_path)
     doi = config.get("doi", "UNKNOWN")
@@ -845,15 +922,20 @@ def run_etl(pdf_path: str, config: dict, dry_run: bool = False):
 
     import psycopg2
     conn = psycopg2.connect(**config["db"])
-    n = 0
+    n, skipped = 0, 0
     for rec in records:
-        if rec.qc_status == "flagged":
+        if rec.qc_status == "flagged" and skip_flagged:
             log.warning("跳过违规记录 %s: %s", rec.iupac_short, rec.qc_notes)
+            skipped += 1
             continue
+        if rec.qc_status == "flagged":
+            # 默认保留可疑数据入库并打上 flagged 标记: 对真值库而言,
+            # 丢弃比保留风险更高(无法回溯), 由下游查询自行决定是否采信。
+            log.warning("入库但标记 flagged: %s: %s", rec.iupac_short, rec.qc_notes)
         insert_record(conn, rec)
         n += 1
     conn.close()
-    log.info("入库完成, 共写入 %d 条", n)
+    log.info("入库完成, 共写入 %d 条（跳过 %d 条）", n, skipped)
 
 
 # ============================================================================
@@ -967,6 +1049,8 @@ def main():
     ap.add_argument("--config", default="etl_config.yaml", help="配置文件")
     ap.add_argument("--dry-run", action="store_true", help="只解析不连库")
     ap.add_argument("--self-test", action="store_true", help="内置示例自检")
+    ap.add_argument("--skip-flagged", action="store_true",
+                    help="质控违规记录不入库（默认入库并标记 flagged，便于回溯）")
     args = ap.parse_args()
 
     if args.self_test:
@@ -980,7 +1064,8 @@ def main():
         import yaml
         with open(args.config, encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
-    run_etl(args.pdf, config, dry_run=args.dry_run)
+    run_etl(args.pdf, config, dry_run=args.dry_run,
+            skip_flagged=args.skip_flagged)
 
 
 if __name__ == "__main__":

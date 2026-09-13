@@ -453,6 +453,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="只解析不连库（默认模式）")
     ap.add_argument("--save-json", action="store_true", help="每份 PDF 额外保存完整解析 JSON")
     ap.add_argument("--self-test", action="store_true", help="内置样例自检（不连库）")
+    ap.add_argument("--skip-flagged", action="store_true",
+                    help="质控违规记录不入库（默认入库并标记 flagged，便于回溯）")
     args = ap.parse_args()
 
     if args.self_test:
@@ -489,6 +491,8 @@ def main():
 
     items = []
     out_dir = os.path.abspath(args.report_dir)
+    # 提前建目录：--save-json 在本循环内写文件，晚于 dump_report() 的 makedirs
+    os.makedirs(out_dir, exist_ok=True)
     for i, pdf in enumerate(pdfs, 1):
         base = os.path.basename(pdf)
         m = meta.get(base) or {}
@@ -536,14 +540,22 @@ def main():
                 if not db:
                     raise RuntimeError("config 中缺少 db 连接信息")
                 conn = psycopg2.connect(**db)
-                n = 0
+                n, skipped = 0, 0
                 for rec in records:
-                    if rec.qc_status == "flagged":
+                    if rec.qc_status == "flagged" and args.skip_flagged:
+                        log.warning("  跳过 flagged 记录: %s (%s)",
+                                    rec.iupac_short, rec.qc_notes)
+                        skipped += 1
                         continue
+                    if rec.qc_status == "flagged":
+                        # 默认保留可疑数据并打 flagged 标记：真值库里丢弃比保留
+                        # 风险更高（无法回溯），由下游查询决定是否采信。
+                        log.warning("  入库但标记 flagged: %s (%s)",
+                                    rec.iupac_short, rec.qc_notes)
                     gle.insert_record(conn, rec)
                     n += 1
                 conn.close()
-                log.info("  入库 %d 条", n)
+                log.info("  入库 %d 条（跳过 %d 条）", n, skipped)
             except Exception as e:  # noqa: BLE001
                 log.error("  入库失败: %s", e)
                 items[-1]["qc_issues"] = (items[-1]["qc_issues"] or "") + f" | DB_ERR: {e}"
