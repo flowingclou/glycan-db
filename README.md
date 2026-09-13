@@ -133,7 +133,7 @@ glycan-db/
 | 模块 | 职责 |
 |---|---|
 | `core.py` | 核心解析入库引擎：PDF 文本层抽取、单糖/残基/键连结构写法识别、NMR 位移提取、QC 判定、入库。复用数据类 `GlycanRecord / Residue / NMRExperiment / Peak1D / PolysaccharideProps` 与 `MONOSACCHARIDES` 常量 |
-| `table_parser.py` | 补齐表格式文献的解析：Table1 分子量表（RT/Mp/Mw/Mn/单糖 mol%）、Table2 归属表（残基编码列 / IUPAC 列 / H·C 成对）、正文甲基化/糖苷键连三类 |
+| `table_parser.py` | 补齐表格式文献的解析：分子量表（RT/Mp/Mw/Mn/单糖 mol%）、位移归属表（位置数字表头 与 `H1/C1` 成对表头两种版式）、正文甲基化/糖苷键连；并从正文结论句提取**主链连接式**还原完整序列。含双栏页面线性化与 `x_tolerance` 词粘连处理 |
 | `embeddings.py` | 读取库内结构化记录，调用 SiliconFlow BGE-M3 API 生成向量并回写 embedding 列。API Key 仅从环境变量 `SILICONFLOW_API_KEY` 读取，代码内不含任何明文密钥 |
 
 ### 4.2 批量管道 `pipelines/`
@@ -196,6 +196,29 @@ LIN
 python3 pipelines/backfill_glycoct.py --config pipelines/config.local.yaml --dry-run
 python3 pipelines/backfill_glycoct.py --config pipelines/config.local.yaml
 ```
+
+#### 多糖的完整结构从哪来
+
+位移归属表只给出**每个残基的连接位点**（如 `→4)-β-D-Galp-(1→`），不含残基
+之间的连接顺序。但多糖文献的作者已经用 2D NMR（HMBC/NOESY）把顺序推断好，
+并把**结论**写在正文里，例如：
+
+```
+the connection of the main chain was
+→[4)-β-D-Galp-(1]9→4,6)-β-D-Galp-(1→4)-α-D-GalpA-(1→...→4)-α/β-D-Glcp
+```
+
+因此 **ETL 不需要、也不应该重新解析 2D 谱** —— 只需抽出这句正文。解析流程：
+
+1. `text_linear` 按栏线性化（双栏排版会把该句被另一栏切断）；
+2. 定位结论句（"main chain/backbone ... was"），排除图注里的同名短语；
+3. 展开重复块 `[X]n`，解析每个残基的位点、构型、环形式；
+4. 交给 `glycoct.py` 生成完整序列编码 → `structure_level='complete'`。
+
+实测效果（黄精多糖 SPR-1，J. Pharm. Anal. 2024）：主链 15 残基完整解析
+（9×β-D-Galp + 4,6-β-D-Galp + 2×α-D-GalpA + α-D-Glcp + 4,6-α-D-Glcp +
+还原端 α-D-Glcp），生成的 GlycoCT 通过 glypy 校验；表格归属的 12 个残基保留在
+`residues` 表用于谱图对应。若正文没有该结论句，则退回 `composition_only`。
 
 ---
 

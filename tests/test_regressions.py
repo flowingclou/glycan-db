@@ -262,6 +262,48 @@ def test_empty_parse_yields_no_record():
 
 
 # ---------------------------------------------------------------------------
+# 6. 正文连接式 → 完整结构（作者已用 2D NMR 推断好的结论句）
+# ---------------------------------------------------------------------------
+def test_normalize_structure_text_slash_vs_arrow():
+    """'/' 后接 '[' 或数字才是被误映射的箭头；'α/β' 里的斜杠要保留。"""
+    assert tp.normalize_structure_text("/4)-b-D-Galp") == "→4)-b-D-Galp"
+    assert "a/b" in tp.normalize_structure_text("→4)-a/b-D-Glcp")
+
+
+def test_parse_sequence_expression_repeat_block_and_acid():
+    """重复块 [X]n 展开；糖醛酸 'GalpA' 的 A 需拼回糖名。"""
+    residues = tp.parse_sequence_expression("→[4)-b-D-Galp-(1]3→4)-a-D-GalpA-(1")
+    names = [r.monosaccharide_name for r in residues]
+    assert names == ["Gal", "Gal", "Gal", "GalA"], names
+    # 前三个代表重复单元，parent_carbon 都是 4（被取代位点）
+    assert all(r.parent_carbon == 4 for r in residues)
+    assert residues[0].anomer == "b" and residues[-1].anomer == "a"
+
+
+def test_parse_sequence_expression_terminal_residue():
+    """链末端残基没有 '(1'（不再连出），靠后接标点收尾，并标为还原端。"""
+    residues = tp.parse_sequence_expression("→4)-a-D-Glcp-(1→4)-a-D-Glcp, and the")
+    assert len(residues) == 2, residues
+    assert residues[-1].is_reducing_end is True
+    assert residues[0].is_reducing_end is False
+
+
+def test_extract_linkage_sequence_from_conclusion_sentence():
+    text = ("Hence the connection of the main chain was "
+            "→[4)-b-D-Galp-(1]2→4,6)-b-D-Galp-(1→4)-a-D-Glcp, and the connection "
+            "of the branch chains were R1: b-D-Galp-(1")
+    residues = tp.extract_linkage_sequence(text)
+    assert [r.monosaccharide_name for r in residues] == ["Gal", "Gal", "Gal", "Glc"]
+    assert residues[2].linkage_branch == 6        # 4,6-双取代为分支点
+
+
+def test_extract_linkage_sequence_ignores_caption():
+    """图注 'The (A) main chain, (B) branched-chain ...' 不得被当成结论句。"""
+    assert tp.extract_linkage_sequence(
+        "Fig. 3. The (A) main chain, (B) branched-chain, and (C) model of SPR-1.") == []
+
+
+# ---------------------------------------------------------------------------
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

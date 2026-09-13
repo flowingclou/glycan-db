@@ -195,8 +195,44 @@ def pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
                 "page": i, "n_pages": n_pages, "text": text,
                 "words": words, "lines": lines,
                 "width": page.width, "height": page.height,
+                # 线性化文本：双栏排版按栏分别提取，避免左右栏句子交错
+                # （表格式 PDF 的正文连接式常因此被切断而无法解析）
+                "text_linear": _page_text_linear(page, words),
             })
     return pages
+
+
+def detect_column_gutter(words: List[dict], page_width: float) -> Optional[float]:
+    """检测双栏排版的栏间距中心 x；非双栏返回 None。
+
+    做法：在页面中部统计词的 x 分布，取最大空隙。栏间距必须够宽
+    （>页面宽 2%）才算双栏，否则会把稀疏排版的正常空隙误判成栏间距。
+    """
+    if not words:
+        return None
+    cents = sorted((w["x0"] + w["x1"]) / 2.0 for w in words
+                   if page_width * 0.3 < (w["x0"] + w["x1"]) / 2.0 < page_width * 0.7)
+    if len(cents) < 20:
+        return None
+    gap, gx = 0.0, None
+    for a, b in zip(cents, cents[1:]):
+        if b - a > gap:
+            gap, gx = b - a, (a + b) / 2.0
+    if gx is None or gap < page_width * 0.02:
+        return None
+    return gx
+
+
+def _page_text_linear(page, words: List[dict]) -> str:
+    """线性化页面文本：双栏时左栏在前、右栏在后。"""
+    if not words:
+        return ""
+    gx = detect_column_gutter(words, page.width)
+    if gx is None:
+        return page.extract_text(x_tolerance=X_TOLERANCE) or ""
+    left = page.crop((0, 0, gx, page.height)).extract_text(x_tolerance=X_TOLERANCE) or ""
+    right = page.crop((gx, 0, page.width, page.height)).extract_text(x_tolerance=X_TOLERANCE) or ""
+    return left + "\n" + right
 
 
 def cluster_rows(words: List[dict], dy: int = ROW_DY) -> List[dict]:
@@ -580,6 +616,107 @@ def parse_hc_shift_table(page: Dict[str, Any], start_idx: int,
     return out, i
 
 
+# ----------------------------------------------------------------------------
+# 2c) 正文连接式 → 残基序列
+# ----------------------------------------------------------------------------
+# 关键认识：多糖文献的作者已经用 2D NMR（HMBC/NOESY）把连接顺序推断好，并把
+# **结论**写在正文里，例如：
+#   "the connection of the main chain was
+#    →[4)-β-D-Galp-(1]9→4,6)-β-D-Galp-(1→4)-α-D-GalpA-(1→...→4)-α/β-D-Glcp"
+# 因此不需要（也不可能）让 ETL 重新解析 2D 谱，只需把这句正文抽出来解析。
+#
+# 两个必须处理的排版问题：
+#   1) 部分 PDF 把 '→' 字形映射成 '/'（"→4)-β-D-Galp" 变成 "/4)-b-D-Galp"）；
+#   2) 双栏排版会让该句被另一栏的句子切断（用 page["text_linear"] 规避）。
+RE_REPEAT_BLOCK = re.compile(r"\[\s*([^\[\]]+?)\s*\]\s*(\d+)")
+# 单元形如： '→4)-β-D-Galp-(1' / 'β-D-Galp-(1' / '→4)-α-D-GalpA-(1' /
+#          '→4)-α/β-D-Glcp-' / '→3,6)-β-D-Galp-(1'
+# 注意两点：① 糖醛酸的 'A' 写在环形式之后（GalpA），必须单独拎出来再拼回；
+#          ② 还原端常写成 'α/β' 表示两种构型并存，要允许斜杠。
+RE_SEQ_UNIT = re.compile(
+    r"(?:→)?\s*"
+    r"(?P<pos>\d+(?:\s*,\s*\d+)*)?\s*\)?\s*-?\s*"
+    r"(?P<anom>[abαβ])?\s*(?:/\s*[abαβ]\s*)?-?\s*[DL]?\s*-?\s*"
+    r"(?P<code>GlcNAc|GalNAc|ManNAc|Gal|Glc|Man|Fuc|Rha|Ara|Xyl|Rib|"
+    r"Lyx|All|Alt|Gul|Ido|Tal|GlcA|GalA|ManA|IdoA|GulA)\s*"
+    r"(?P<ring>[pf])?\s*(?P<acid>A)?\s*"
+    # 链末端残基不连出，因此没有 '(1'，靠"后接逗号/句号/结尾"收尾
+    r"(?:-?\s*\(1|(?=\s*[,.;]|\s+and\s|$))",
+    re.I)
+
+
+def normalize_structure_text(text: str) -> str:
+    """规范化结构式文本：'/'→'→'、合并跨行连字符、压缩空白。
+
+    注意 '/' 只在后接 '[' 或数字时才是箭头，否则是真正的斜杠
+    （如 "α/β-D-Glcp" 表示两种构型并存），不能一律替换。
+    """
+    t = re.sub(r"/\s*(?=[\[\d])", "→", text)
+    t = re.sub(r"-\s*\n\s*", "-", t)      # "b-D-\nGalp" → "b-D-Galp"
+    t = re.sub(r"\s*\n\s*", " ", t)
+    return re.sub(r"\s+", " ", t)
+
+
+def _canon_mono_code(code: str) -> str:
+    """把正则匹配到的糖名（大小写不定）规范化为标准写法。"""
+    low = code.lower()
+    for k in sorted(MONOSACCHARIDES, key=len, reverse=True):
+        if k.lower() == low:
+            return k
+    return ""
+
+
+def parse_sequence_expression(expr: str) -> List[Any]:
+    """解析连接式 → 残基序列（顺序即 非还原端 → 还原端）。
+
+    重复块 ``[4)-β-D-Galp-(1]9`` 展开为 9 个该残基；每个残基的
+    ``parent_carbon`` 取其被取代位点，供 core.glycoct 生成编码。
+    """
+    expr = RE_REPEAT_BLOCK.sub(
+        lambda m: (m.group(1).strip() + " ") * int(m.group(2)), expr)
+    residues: List[Any] = []
+    for m in RE_SEQ_UNIT.finditer(expr):
+        code = _canon_mono_code(m.group("code"))
+        if not code:
+            continue
+        # 'GalpA' 的 'A'（糖醛酸）位于环形式之后，需拼回糖名
+        if m.group("acid") and not code.endswith("A"):
+            code += "A"
+        pos = (m.group("pos") or "").replace(" ", "")
+        parent = int(pos.split(",")[0]) if pos else None
+        branch = int(pos.split(",")[1]) if "," in pos else 0
+        anom = {"a": "a", "b": "b", "α": "a", "β": "b"}.get(
+            (m.group("anom") or "").lower(), "unknown")
+        residues.append(Residue(
+            residue_seq=len(residues) + 1, monosaccharide_name=code,
+            ring_form=(m.group("ring") or "p").lower(), anomer=anom,
+            is_reducing_end=False, parent_carbon=parent,
+            linkage_branch=branch))
+    if residues:
+        residues[-1].is_reducing_end = True      # 链末端为还原端
+    return residues
+
+
+def extract_linkage_sequence(full_text: str) -> List[Any]:
+    """从正文抽取作者给出的主链连接式，解析为残基序列。
+
+    返回空列表表示正文没有可用的连接式（此时不应臆造结构）。
+    """
+    t = normalize_structure_text(full_text)
+    # 结论句形如 "... the connection of the main chain was →[4)-β-D-Galp-(1]9→..."
+    # 捕获组必须以箭头或 '[' 开头，才能排除图注里的 "The (A) main chain, (B) ..."
+    # 以及 "This..." 里偶然出现的 "is"（词边界 + 结构式起始字符双重约束）。
+    m = re.search(r"(?:main\s+chain|backbone)[^.]{0,40}?\b(?:was|were|is)\b\s*"
+                  r"([→\[][^.]{10,800})", t, re.I)
+    if not m:
+        # 退化：正文给出了一段带箭头的长结构式
+        m = re.search(r"([→]\s*\[?[^.]{20,600}?\(1[^.]{0,300})", t)
+    if not m:
+        return []
+    expr = re.split(r",\s*and\s|;\s*and\s|\band\s+the\s+", m.group(1))[0]
+    return parse_sequence_expression(expr)
+
+
 # 从 IUPAC 描述提取单糖块：`α -D-Gal p A -6-OMe-(1→` → seg=Gal, ring=p, acid=A
 RE_MONO_SEG = re.compile(
     r"(?:[αβab])?\s*-?\s*[DL]?-?\s*"
@@ -828,7 +965,8 @@ def _poly_summary_name(residues: List[Residue]) -> str:
 
 
 def build_record(meta: dict, kv_norm: dict, entries: List[dict],
-                 linkages: List[dict], nmr_page: int) -> Optional[GlycanRecord]:
+                 linkages: List[dict], nmr_page: int,
+                 full_text: str = "") -> Optional[GlycanRecord]:
     rec = GlycanRecord()
     rec.sugar_type = "poly"
     rec.iupac_short = meta.get("polysaccharide") or kv_norm.get("name")
@@ -898,6 +1036,23 @@ def build_record(meta: dict, kv_norm: dict, entries: List[dict],
         rec.composition = gx["composition"]
         for w in gx["warnings"]:
             rec.qc_notes.append(f"结构编码: {w}")
+
+    # 正文连接式：作者已用 2D NMR（HMBC/NOESY）推断好连接顺序并写在结论句里
+    # （如 "the connection of the main chain was →[4)-β-D-Galp-(1]9→..."）。
+    # 这是**完整结构**，优先使用它生成编码；表格残基只到"每个残基的连接位点"，
+    # 无法给出残基间顺序。
+    seq_residues = extract_linkage_sequence(full_text) if full_text else []
+    if seq_residues and _glycoct_lib is not None:
+        seq_gx = _glycoct_lib.build_glycoct(seq_residues, "poly")
+        if seq_gx["glycoct"]:
+            rec.glycoct = seq_gx["glycoct"]
+            rec.structure_level = "complete"     # 完整序列，可做结构级比对
+            rec.composition = seq_gx["composition"]
+            rec.qc_notes.append(
+                f"结构编码: 正文连接式解析出 {len(seq_residues)} 残基完整序列"
+                f"（表格归属列出 {len(rec.residues)} 个残基类型）")
+            for w in seq_gx["warnings"]:
+                rec.qc_notes.append(f"结构编码(正文): {w}")
 
     rec.qc_notes.append("table-parser: molecular table (Table-like 1)")
     rec.qc_notes.append(f"table-parser: shift table with {len(entries)} residues")
@@ -1096,13 +1251,16 @@ def run(pdf_path: str, verbose: bool = True) -> dict:
                     entries_all.extend(ents)
 
     # 正文全文（用于键连）：按页序拼接自然文本
+    # text_linear：双栏排版按栏线性化，避免左右栏句子交错把结构式切断
     full_text = "\n".join(
-        f"\n===== PAGE {pg['page']} =====\n{pg['text']}" for pg in pages)
+        f"\n===== PAGE {pg['page']} =====\n{pg.get('text_linear') or pg['text']}"
+        for pg in pages)
     linkages = parse_linkages(full_text, residue_entries=entries_all)
 
     kv_norm = normalize_molecular_kv(kv_all)
     kv_norm["name"] = meta.get("polysaccharide") or "unknown polysaccharide"
-    rec = build_record(meta, kv_norm, entries_all, linkages, nmr_page)
+    rec = build_record(meta, kv_norm, entries_all, linkages, nmr_page,
+                       full_text=full_text)
 
     # 计算位移条数（rec 为 None 表示本次没解析出实质数据）
     n_shifts = sum(len(e.peaks) for e in rec.experiments) if rec else 0
