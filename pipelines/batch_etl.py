@@ -282,6 +282,7 @@ def table_blob_to_records(blob: dict, doi, journal, year):
         nmr_page=blob.get("nmr_page"),
         structure_level=blob.get("structure_level"),
         composition=blob.get("composition"),
+        domain_architecture=blob.get("domain_architecture"),
     )
     rec.residues = [_dataclass_from(r, _core.Residue) for r in blob.get("residues") or []]
     if blob.get("physicochemical"):
@@ -301,6 +302,9 @@ def table_blob_to_records(blob: dict, doi, journal, year):
         exp.peaks_2d = [_dataclass_from(p, _core.Peak2D) for p in e.get("peaks_2d") or []]
         rec.experiments.append(exp)
     rec.qc_notes = list(blob.get("qc_notes") or [])
+    # 一致性校验发现：不落库（无对应列），但要进 --save-json 供复核
+    if hasattr(rec, "consistency_findings"):
+        rec.consistency_findings = list(blob.get("consistency_findings") or [])
     # 归一化 QC 状态：table-parser 的 dry-run-ok 视为通过（已有结构/位移证据）
     qs = blob.get("qc_status", "dry-run-ok")
     rec.qc_status = {"dry-run-ok": "passed"}.get(qs, qs)
@@ -564,8 +568,7 @@ def main():
         passed = sum(1 for r in records if r.qc_status == "passed")
         types = ",".join(sorted({r.sugar_type for r in records}))
         issues = "; ".join(" | ".join(r.qc_notes) for r in records if r.qc_notes)
-        detail = ", ".join(f"{r.iupac_short}({r.sugar_type},{len(r.experiments)}exp)"
-                           for r in records)
+        detail = ", ".join(_record_detail(r) for r in records)
         if not records:
             # 0 条时说明原因：是"文献类型不适用"还是"解析未覆盖"
             detail = explain_zero_records(
@@ -582,6 +585,8 @@ def main():
                             "n_2d_peaks": sum(len(e.peaks_2d) for e in r.experiments),
                             "structure_level": r.structure_level,
                             "composition": r.composition,
+                            "domain_architecture": getattr(r, "domain_architecture", None),
+                            "consistency_findings": getattr(r, "consistency_findings", []),
                             "glycoct": r.glycoct,
                             "residues": [asdict_min(r) for r in r.residues],
                             "qc_status": r.qc_status, "qc_notes": r.qc_notes}
@@ -620,6 +625,23 @@ def main():
              sum(1 for it in items if it["records"]), len(items),
              sum(it["records"] for it in items))
     print(f"\n报告: {md_path}\n     {csv_path}")
+
+
+def _record_detail(r) -> str:
+    """报告「明细」列的单元：糖名 + 类型 + 实验数 + 结构表达等级。
+
+    domain_only 额外列出域组成（如 "HG+RG-I"），否则报告里看不出这条记录
+    到底"结构到哪一档"，容易被误读成完整结构。
+    """
+    s = f"{r.iupac_short}({r.sugar_type},{len(r.experiments)}exp"
+    level = getattr(r, "structure_level", None)
+    if level:
+        s += f",{level}"
+    arch = getattr(r, "domain_architecture", None) or {}
+    names = [d.get("name") for d in arch.get("domains", []) if d.get("name")]
+    if names:
+        s += f",域={'+'.join(names)}"
+    return s + ")"
 
 
 def asdict_min(res):

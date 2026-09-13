@@ -133,6 +133,8 @@ except Exception as exc:  # pragma: no cover - 兜底，避免 import 失败即�
         qc_status: str = "pending"
         structure_level: Optional[str] = None
         composition: Optional[str] = None
+        domain_architecture: Optional[dict] = None
+        consistency_findings: List[dict] = field(default_factory=list)
 
     @dataclass
     class _ETL:
@@ -146,6 +148,12 @@ except Exception as exc:  # pragma: no cover - 兜底，避免 import 失败即�
     RE_POLY_UNIT = None
     ETL_VER = "standalone-fallback"
     _ANOM_K = lambda a: {"a": "α", "b": "β"}.get(a, "")
+
+# 一致性校验层（域级结论 + 跨数据源对账；独立导入，失败不影响其余功能）
+try:
+    from glycan_etl import consistency as _consistency
+except Exception:  # pragma: no cover
+    _consistency = None
 
 # P0-1: 标准 GlycoCT 生成器（独立导入，失败不影响其余功能）
 try:
@@ -1097,8 +1105,17 @@ def build_record(meta: dict, kv_norm: dict, entries: List[dict],
     # P0-1: 标准 GlycoCT + 结构表达等级 + 组成式。
     # 表格型文献的多糖多来自甲基化/位移归属表，残基间连接顺序未知，
     # 生成器会据此判定为 composition_only 而**不伪造** GlycoCT。
+    # 域级骨架结论（如"主链由大量 HG 域与少量带侧链的 RG-I 域组成"）。
+    # 这类句子不含 '→'，extract_linkage_sequence 抓不到，但信息量远高于纯组成式，
+    # 因此单独抽出来作为 structure_level='domain_only' 的依据。
+    if _glycoct_lib is not None and full_text:
+        arch = _glycoct_lib.extract_domain_architecture(full_text)
+        if arch.get("domains"):
+            rec.domain_architecture = arch
     if _glycoct_lib is not None:
-        gx = _glycoct_lib.build_glycoct(rec.residues, "poly")
+        gx = _glycoct_lib.build_glycoct(
+            rec.residues, "poly",
+            domain_architecture=getattr(rec, "domain_architecture", None))
         rec.glycoct = gx["glycoct"]
         rec.structure_level = gx["level"]
         rec.composition = gx["composition"]
@@ -1135,7 +1152,21 @@ def build_record(meta: dict, kv_norm: dict, entries: List[dict],
 
     rec.qc_notes.append("table-parser: molecular table (Table-like 1)")
     rec.qc_notes.append(f"table-parser: shift table with {len(entries)} residues")
+
+    # 基础状态先置好：batch_etl 会把 'dry-run-ok' 归一化为 'passed'。
+    # 顺序很重要 —— 必须在一致性校验**之前**赋值，否则校验给出的 'flagged'
+    # 会被这里覆盖掉（实测踩过：报告里 flagged 恒为 0）。
     rec.qc_status = "dry-run-ok"
+
+    # 交叉一致性校验（组成% ↔ 残基表 ↔ 甲基化 ↔ 正文构型）
+    if _consistency is not None:
+        try:
+            chk = _consistency.cross_check(rec, statement_text=full_text)
+            rec.consistency_findings = chk["findings"]
+            if chk["findings"]:
+                _consistency.apply_to_record(rec, chk["findings"])
+        except Exception as exc:  # noqa: BLE001
+            rec.qc_notes.append(f"一致性校验未执行: {type(exc).__name__}: {exc}")
 
     # 没有任何实质数据（残基 / 位移 / 物性）时不产出记录。否则解析失败的
     # PDF 会在报告里显示成"识别出 1 条记录"，把失败包装成成功，还可能写入
