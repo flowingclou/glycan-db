@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
 
 from glycan_etl import core                      # noqa: E402
 from glycan_etl import table_parser as tp        # noqa: E402
+from glycan_etl import glycoct as gx             # noqa: E402
 
 
 def _poly(iupac, doi, residues):
@@ -140,6 +141,86 @@ def test_polysaccharide_name_skips_stopwords():
              _w("polysaccharide", 138, 240, 200, 14.0)]
     meta = tp.extract_meta([_page(words)])
     assert meta["polysaccharide"] is None, meta
+
+
+# ---------------------------------------------------------------------------
+# 4. 标准 GlycoCT 生成（P0-1）
+#     旧版手拼的 "RES 1b:a-lglcp-1:5|2:x" 不是合法 GlycoCT，
+#     外部工具（glypy / GlyTouCan）无法解析，AI 平台也就无法做结构比对。
+# ---------------------------------------------------------------------------
+def _res(seq, name, anomer="unknown", parent=None, reducing=False, branch=0):
+    return core.Residue(residue_seq=seq, monosaccharide_name=name, ring_form="p",
+                        anomer=anomer, is_reducing_end=reducing,
+                        parent_carbon=parent, linkage_branch=branch)
+
+
+def test_glycoct_mono_is_standard_format():
+    out = gx.build_glycoct([_res(1, "Glc", anomer="b", reducing=True)], "mono")
+    assert out["level"] == "complete"
+    assert out["glycoct"] == "RES\n1b:b-dglc-HEX-1:5", out["glycoct"]
+
+
+def test_glycoct_oligo_linkage_direction():
+    """供体提供异头碳、受体提供羟基氧：写法必须是 <受体>o(<位点>+1)<供体>d。"""
+    residues = [_res(1, "Glc", anomer="a", parent=1),          # 非还原端，C1 参与键
+                _res(2, "Glc", anomer="unknown", parent=4, reducing=True)]  # 还原端 O4
+    out = gx.build_glycoct(residues, "oligo")
+    assert out["level"] == "complete"
+    assert out["glycoct"].splitlines()[-1] == "1:2o(4+1)1d", out["glycoct"]
+
+
+def test_glycoct_uronic_acid_and_deoxy():
+    ga = gx.build_glycoct([_res(1, "GalA", anomer="a")], "mono")["glycoct"]
+    assert "|6:a" in ga, ga              # 糖醛酸：C6 为羧酸
+    rha = gx.build_glycoct([_res(1, "Rha", anomer="a")], "mono")["glycoct"]
+    assert "lman" in rha and "|6:d" in rha, rha   # 6-脱氧-L-甘露糖
+
+
+def test_glycoct_nacetyl_uses_substituent_residue():
+    out = gx.build_glycoct([_res(1, "GlcNAc", anomer="b")], "mono")["glycoct"]
+    assert "2s:n-acetyl" in out and "1:1d(2+1)2n" in out, out
+
+
+def test_glycoct_composition_only_not_fabricated():
+    """连接顺序未知的杂多糖不得伪造 GlycoCT。"""
+    residues = [_res(1, "GalA", anomer="a", parent=4),
+                _res(2, "Gal", anomer="b", parent=None),
+                _res(3, "Ara", anomer="a", parent=5)]
+    out = gx.build_glycoct(residues, "poly")
+    assert out["level"] == "composition_only"
+    assert out["glycoct"] is None, out["glycoct"]
+    assert out["composition"], out
+
+
+def test_glycoct_unknown_monosaccharide_degrades_safely():
+    out = gx.build_glycoct([_res(1, "Unobtainium", anomer="a")], "mono")
+    assert out["glycoct"] is None
+    assert out["level"] == "composition_only"
+
+
+def test_generated_glycoct_passes_glypy():
+    """有 glypy 时做闭环校验（无 glypy 则跳过，属可选依赖）。"""
+    samples = [
+        gx.build_glycoct([_res(1, "Glc", anomer="b")], "mono")["glycoct"],
+        gx.build_glycoct([_res(1, "Glc", anomer="a", parent=1),
+                          _res(2, "Glc", parent=4, reducing=True)], "oligo")["glycoct"],
+        gx.build_glycoct([_res(1, "GlcNAc", anomer="b")], "mono")["glycoct"],
+    ]
+    for text in samples:
+        ok, msg = gx.validate_glycoct(text)
+        if ok is None:
+            return          # 未安装 glypy，跳过
+        assert ok is True, f"{text!r} 校验失败: {msg}"
+
+
+def test_core_uses_standard_glycoct():
+    """core.parse_block 产出的必须是标准编码，而不是旧版手拼串。"""
+    rec = core.parse_block(
+        "", "β-D-Glcp\n1H NMR (500 MHz, D2O) δ 4.64 (d, J = 7.9 Hz, 1H, H-1).",
+        "10.x", "J", 2024)[0]
+    assert rec.glycoct and "RES" in rec.glycoct.splitlines()
+    assert rec.structure_level == "complete"
+    assert not rec.glycoct.startswith("RES 1b:"), rec.glycoct
 
 
 # ---------------------------------------------------------------------------

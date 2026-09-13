@@ -102,16 +102,20 @@ glycan-db/
 │   │   ├── v001_mvp.sql    #   单糖四表（sugars/literature/nmr_experiments/nmr_shifts_1d）
 │   │   ├── v002_extend.sql #   残基/2D 相关峰/物化/多糖性质扩展
 │   │   ├── v003_qc.sql     #   质控触发器 R1-R10 + 全库校验函数
-│   │   └── v004_vector_and_provenance.sql
-│   │                       #   pgvector embedding 列 + HNSW 索引 + 溯源列
+│   │   ├── v004_vector_and_provenance.sql
+│   │   │                   #   pgvector embedding 列 + HNSW 索引 + 溯源列
+│   │   └── v005_structure_level.sql
+│   │                       #   结构表达等级 + 残基组成式
 │   └── schema_design.md    # 数据库 schema 设计文档
 ├── glycan_etl/             # 解析引擎包
 │   ├── __init__.py         #   包初始化 + __version__
 │   ├── core.py             #   单份 PDF 解析入库引擎（v3.x 全功能）
 │   ├── table_parser.py     #   表格式文献解析器（分子量表/归属表/正文键连）
+│   ├── glycoct.py          #   标准 GlycoCT 结构编码生成 + 校验
 │   └── embeddings.py       #   BGE-M3 向量化脚本（API Key 仅从环境变量读取）
 ├── pipelines/
 │   ├── batch_etl.py        # 批量执行器（自检/批量 dry-run/批量入库/汇总报告）
+│   ├── backfill_glycoct.py # 存量记录结构编码回填/修正
 │   └── config.yaml         # 配置示例（含数据库连接占位符与溯源字段）
 ├── tests/
 │   ├── run_tests.py        # 自检入口（py_compile + 回归测试 + self-test）
@@ -155,6 +159,44 @@ glycan-db/
   定义在 v004 中。缺了这一步，`glycan_etl/embeddings.py` 会直接报
   `column "embedding" does not exist`，README §5 的近邻检索 SQL 也无法执行。
 
+### 4.4 结构编码与表达等级（`glycan_etl/glycoct.py`）
+
+`sugars.glycoct` 存放**标准 GlycoCT**（`RES`/`LIN` 分段 + 规范 basetype），
+可被 glypy、GlyTouCan 等外部工具解析：
+
+```text
+RES
+1b:a-dglc-HEX-1:5
+2b:x-dglc-HEX-1:5
+LIN
+1:2o(4+1)1d          # 残基2 的 O4 ← 残基1 的异头碳
+```
+
+编码规则要点：
+
+- 连接写作 `<受体残基>o(<受体位点>+1)<供体残基>d`，供体提供异头碳、受体提供羟基氧；
+- 糖醛酸用 `|6:a`（如 GalA）、6-脱氧糖用 `|6:d`（如 Rha/Fuc）；
+- N-乙酰氨基糖按规范以独立取代基残基 `2s:n-acetyl` 表达；
+- 生成结果用 glypy 校验（未安装 glypy 时跳过校验，不影响生成）。
+
+**不是所有记录都能给出完整结构。** GlycoCT 只能表达确定结构，而文献里
+大量多糖只给出甲基化/组成信息、残基间连接顺序未知。硬生成编码等于伪造
+数据，因此 `sugars.structure_level` 显式记录表达程度：
+
+| structure_level | 含义 | glycoct 字段 |
+|---|---|---|
+| `complete` | 单糖/寡糖，连接明确 | 完整结构编码 |
+| `repeat_unit` | 单一重复单元多糖 | 一个重复单元的编码 |
+| `composition_only` | 仅残基组成，连接顺序未知 | 空；结构信息在 `composition`（如 `GalA7,Ara3,Gal3,Rha2,GlcA`） |
+
+下游按此字段决定能否做结构级比对：`complete` / `repeat_unit` 可直接比对，
+`composition_only` 只能按组成筛选。存量记录可用回填脚本修正：
+
+```bash
+python3 pipelines/backfill_glycoct.py --config pipelines/config.local.yaml --dry-run
+python3 pipelines/backfill_glycoct.py --config pipelines/config.local.yaml
+```
+
 ---
 
 ## 5. 如何对接（下游平台 / 检索知识库 / AI 平台）
@@ -168,7 +210,23 @@ glycan-db/
    ORDER BY e.embedding <=> $1::vector
    LIMIT 10;
    ```
-3. **AI 平台接入**：AI 推断出的候选结构，可用其 GlycoCT/IUPAC 与 NMR 位移特征向量，回查上表做「推断 vs 真值」比对，实现验证与纠偏。
+3. **结构比对（AI 推断 vs 真值）**：AI 平台给出候选结构的标准 GlycoCT 后可直接回查：
+   ```sql
+   -- 3.1 精确命中：候选结构是否已在真值库中（仅对 structure_level 为
+   --     complete / repeat_unit 的记录有意义）
+   SELECT s.sugar_id, s.iupac_short, s.structure_level, s.structure_confidence,
+          s.first_seen_doi
+   FROM sugars s
+   WHERE s.glycoct = $1;
+
+   -- 3.2 按组成筛选：连接顺序未知的杂多糖只能用组成检索
+   SELECT s.iupac_short, s.composition, count(r.residue_id) AS n_residues
+   FROM sugars s LEFT JOIN residues r ON r.sugar_id = s.sugar_id
+   WHERE s.composition = $2 AND s.structure_level = 'composition_only'
+   GROUP BY 1, 2;
+   ```
+   比对前先看 `structure_level`：`composition_only` 的记录没有结构编码，
+   不能做结构级判定，只能提示"该文献报道过相同组成的多糖"。
 4. **对接知识库**：将 `etl_reports/` 报告与结构化记录作为语料注入检索知识库，供上层 Agent/AI 平台引用。
 
 ---

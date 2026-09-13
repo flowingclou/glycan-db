@@ -7,8 +7,9 @@ glycan_etl — 糖类数据库 PDF→结构化入库 解析引擎包
 子模块:
   - core        核心解析入库引擎（原 glycan_etl_v3.py，段落式正文解析）
   - table_parser 表格式文献解析器（分子量/归属表/正文键连，补齐 core 缺口）
+  - glycoct     标准 GlycoCT 结构编码生成与校验（含结构表达等级判定）
   - embeddings  bge-m3 向量化（为 nmr_shifts_1d 生成 1024 维 embedding）
 """
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 
-__all__ = ["core", "table_parser", "embeddings"]
+__all__ = ["core", "table_parser", "glycoct", "embeddings"]

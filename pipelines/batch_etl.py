@@ -274,6 +274,8 @@ def table_blob_to_records(blob: dict, doi, journal, year):
         journal=journal if journal is not None else blob.get("journal"),
         year=year if year is not None else blob.get("year"),
         nmr_page=blob.get("nmr_page"),
+        structure_level=blob.get("structure_level"),
+        composition=blob.get("composition"),
     )
     rec.residues = [_dataclass_from(r, _core.Residue) for r in blob.get("residues") or []]
     if blob.get("physicochemical"):
@@ -528,6 +530,9 @@ def main():
                 json.dump([{"iupac_short": r.iupac_short, "sugar_type": r.sugar_type,
                             "anomer": r.anomer, "n_experiments": len(r.experiments),
                             "n_2d_peaks": sum(len(e.peaks_2d) for e in r.experiments),
+                            "structure_level": r.structure_level,
+                            "composition": r.composition,
+                            "glycoct": r.glycoct,
                             "residues": [asdict_min(r) for r in r.residues],
                             "qc_status": r.qc_status, "qc_notes": r.qc_notes}
                            for r in records], f, ensure_ascii=False, indent=2)

@@ -131,6 +131,8 @@ except Exception as exc:  # pragma: no cover - 兜底，避免 import 失败即�
         experiments: List[NMRExperiment] = field(default_factory=list)
         qc_notes: List[str] = field(default_factory=list)
         qc_status: str = "pending"
+        structure_level: Optional[str] = None
+        composition: Optional[str] = None
 
     @dataclass
     class _ETL:
@@ -144,6 +146,16 @@ except Exception as exc:  # pragma: no cover - 兜底，避免 import 失败即�
     RE_POLY_UNIT = None
     ETL_VER = "standalone-fallback"
     _ANOM_K = lambda a: {"a": "α", "b": "β"}.get(a, "")
+
+# P0-1: 标准 GlycoCT 生成器（独立导入，失败不影响其余功能）
+try:
+    from glycan_etl import glycoct as _glycoct_lib
+except Exception:  # pragma: no cover
+    try:
+        from glycoct import build_glycoct as _build_glycoct_fn  # type: ignore
+        _glycoct_lib = type("_M", (), {"build_glycoct": staticmethod(_build_glycoct_fn)})()
+    except Exception:
+        _glycoct_lib = None
 
 PARSER_VER = "1.0.0"
 
@@ -772,6 +784,17 @@ def build_record(meta: dict, kv_norm: dict, entries: List[dict],
     if not rec.iupac_short or str(rec.iupac_short).strip().lower() in (
             "unknown polysaccharide", "unknown", "unresolved polysaccharide"):
         rec.iupac_short = _poly_summary_name(rec.residues)
+
+    # P0-1: 标准 GlycoCT + 结构表达等级 + 组成式。
+    # 表格型文献的多糖多来自甲基化/位移归属表，残基间连接顺序未知，
+    # 生成器会据此判定为 composition_only 而**不伪造** GlycoCT。
+    if _glycoct_lib is not None:
+        gx = _glycoct_lib.build_glycoct(rec.residues, "poly")
+        rec.glycoct = gx["glycoct"]
+        rec.structure_level = gx["level"]
+        rec.composition = gx["composition"]
+        for w in gx["warnings"]:
+            rec.qc_notes.append(f"结构编码: {w}")
 
     rec.qc_notes.append("table-parser: molecular table (Table-like 1)")
     rec.qc_notes.append(f"table-parser: shift table with {len(entries)} residues")

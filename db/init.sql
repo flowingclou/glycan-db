@@ -57,6 +57,15 @@ CREATE TABLE IF NOT EXISTS sugars (
 );
 CREATE INDEX IF NOT EXISTS idx_sugars_type ON sugars(sugar_type);
 
+-- V5 列提前到这里声明：sugars 种子数据（下方）就会写入 structure_level /
+-- composition，若等到文件末尾的 V5 段才建列会报 "column does not exist"。
+-- 定义与 migrations/v005_structure_level.sql 完全一致（幂等）。
+ALTER TABLE sugars
+    ADD COLUMN IF NOT EXISTS structure_level TEXT
+    CHECK (structure_level IN ('complete', 'repeat_unit', 'composition_only'));
+ALTER TABLE sugars
+    ADD COLUMN IF NOT EXISTS composition TEXT;
+
 -- 1.3 谱图实验记录（MVP 裁剪版）
 CREATE TABLE IF NOT EXISTS nmr_experiments (
     experiment_id    BIGSERIAL PRIMARY KEY,
@@ -96,17 +105,22 @@ INSERT INTO literature (doi, journal, year, title, authors) VALUES
 ('10.1016/j.carres.2019.107800', 'Carbohydr. Res.', 2019, '1H and 13C chemical shifts of N-acetyl aminosugars', 'Kim, S.; Park, J.')
 ON CONFLICT (doi) DO NOTHING;
 
--- 2.2 单糖主表（D-葡萄糖 α/β、D-半乳糖 β、N-乙酰氨基葡萄糖 β、N-乙酰神经氨酸）
-INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula, molecular_weight, anomer, structure_confidence, stereochemistry_defined, first_seen_doi) VALUES
-('mono', 'RES 1b:a-lglcp-1:5|2:x', encode(digest('RES 1b:a-lglcp-1:5|2:x', 'sha256'), 'hex'),
- 'α-D-Glcp', 'C6H12O6', 180.1559, 'a', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'),
-('mono', 'RES 1b:b-lglcp-1:5|2:x', encode(digest('RES 1b:b-lglcp-1:5|2:x', 'sha256'), 'hex'),
- 'β-D-Glcp', 'C6H12O6', 180.1559, 'b', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'),
-('mono', 'RES 1b:b-dgalp-1:5|2:x', encode(digest('RES 1b:b-dgalp-1:5|2:x', 'sha256'), 'hex'),
- 'β-D-Galp', 'C6H12O6', 180.1559, 'b', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'),
-('mono', 'RES 1b:b-dglcpnac-1:5|2:x', encode(digest('RES 1b:b-dglcpnac-1:5|2:x', 'sha256'), 'hex'),
- 'β-D-GlcpNAc', 'C8H15NO6', 221.2078, 'b', 'confirmed_2d', TRUE, '10.1016/j.carres.2019.107800')
-ON CONFLICT (glycoct_hash) DO NOTHING;
+-- 2.2 单糖主表（标准 GlycoCT：RES 分段 + 规范 basetype + structure_level）
+INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula,
+                    molecular_weight, anomer, structure_confidence, stereochemistry_defined,
+                    first_seen_doi, structure_level, composition)
+SELECT v.sugar_type, v.glycoct, encode(digest(v.glycoct, 'sha256'), 'hex'),
+       v.iupac_short, v.molecular_formula, v.molecular_weight, v.anomer,
+       v.structure_confidence, v.stereochemistry_defined, v.first_seen_doi,
+       'complete', v.composition
+FROM (VALUES
+    ('mono', E'RES\n1b:a-dglc-HEX-1:5', 'α-D-Glcp', 'C6H12O6', 180.1559, 'a', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000', 'Glc'),
+    ('mono', E'RES\n1b:b-dglc-HEX-1:5', 'β-D-Glcp', 'C6H12O6', 180.1559, 'b', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000', 'Glc'),
+    ('mono', E'RES\n1b:b-dgal-HEX-1:5', 'β-D-Galp', 'C6H12O6', 180.1559, 'b', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000', 'Gal'),
+    ('mono', E'RES\n1b:b-dglc-HEX-1:5\n2s:n-acetyl\nLIN\n1:1d(2+1)2n', 'β-D-GlcpNAc', 'C8H15NO6', 221.2078, 'b', 'confirmed_2d', TRUE, '10.1016/j.carres.2019.107800', 'GlcNAc')
+) AS v(sugar_type, glycoct, iupac_short, molecular_formula, molecular_weight, anomer,
+       structure_confidence, stereochemistry_defined, first_seen_doi, composition)
+ON CONFLICT (glycoct) DO NOTHING;
 
 -- 2.3 谱图实验记录（D2O, 500 MHz, 25°C）
 INSERT INTO nmr_experiments (sugar_id, source_id, nmr_type, solvent, frequency_mhz, temperature_c, ph, qc_status)
@@ -270,21 +284,24 @@ CREATE TABLE IF NOT EXISTS spectrum_files (
 -- ----------------------------------------------------------------------------
 -- 3. 寡糖示例：麦芽糖  α-D-Glcp-(1→4)-D-Glcp（D2O）
 -- ----------------------------------------------------------------------------
-INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula, molecular_weight, anomer, structure_confidence, stereochemistry_defined, first_seen_doi)
-SELECT 'oligo',
-       'RES 1b:a-dglcp-1:5(1:4)|2:x,1a:b-dglcp-1:5|2:x',
-       encode(digest('RES 1b:a-dglcp-1:5(1:4)|2:x,1a:b-dglcp-1:5|2:x','sha256'),'hex'),
+-- 结构编码为标准 GlycoCT：残基1 = 非还原端 α-Glc（提供异头碳），
+-- 残基2 = 还原端（C4 被取代），连接写作 "2o(4+1)1d"。
+INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula, molecular_weight, anomer, structure_confidence, stereochemistry_defined, first_seen_doi, structure_level, composition)
+SELECT 'oligo', g.txt, encode(digest(g.txt,'sha256'),'hex'),
        'α-D-Glcp-(1→4)-D-Glcp', 'C12H22O11', 342.2965, 'a',
-       'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'
+       'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000', 'complete', 'Glc2'
+FROM (SELECT E'RES\n1b:a-dglc-HEX-1:5\n2b:x-dglc-HEX-1:5\nLIN\n1:2o(4+1)1d'::text AS txt) g
 WHERE NOT EXISTS (SELECT 1 FROM sugars WHERE iupac_short = 'α-D-Glcp-(1→4)-D-Glcp');
 
--- 麦芽糖残基组成（还原端 Glc-b, 非还原端 Glc-a, 连接 1→4）
+-- 麦芽糖残基组成：非还原端 Glc-a 提供异头碳 C1，还原端（水溶液中 α/β 平衡，
+-- 构型记为 unknown）的 C4 被取代。
+-- 方向约定与 glycan_etl/core.py build_residues() 一致：残基1 = 非还原端。
 INSERT INTO residues (sugar_id, residue_seq, monosaccharide_name, ring_form, anomer, is_reducing_end, parent_carbon, linkage_branch)
-SELECT s.sugar_id, 1, 'Glc', 'p', 'b', TRUE,  NULL, 0 FROM sugars s
+SELECT s.sugar_id, 1, 'Glc', 'p', 'a', FALSE, NULL, 0 FROM sugars s
 WHERE s.iupac_short = 'α-D-Glcp-(1→4)-D-Glcp'
   AND NOT EXISTS (SELECT 1 FROM residues r WHERE r.sugar_id = s.sugar_id AND r.residue_seq = 1);
 INSERT INTO residues (sugar_id, residue_seq, monosaccharide_name, ring_form, anomer, is_reducing_end, parent_carbon, linkage_branch)
-SELECT s.sugar_id, 2, 'Glc', 'p', 'a', FALSE, 4, 0 FROM sugars s
+SELECT s.sugar_id, 2, 'Glc', 'p', 'unknown', TRUE, 4, 0 FROM sugars s
 WHERE s.iupac_short = 'α-D-Glcp-(1→4)-D-Glcp'
   AND NOT EXISTS (SELECT 1 FROM residues r WHERE r.sugar_id = s.sugar_id AND r.residue_seq = 2);
 
@@ -332,12 +349,13 @@ WHERE s.iupac_short = 'α-D-Glcp-(1→4)-D-Glcp' AND l.doi = '10.1021/acs.joc.0c
 -- ----------------------------------------------------------------------------
 -- 4. 多糖示例：菊粉 Inulin  β-D-Fruf-(2→1)- (重复单元)
 -- ----------------------------------------------------------------------------
-INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula, molecular_weight, anomer, structure_confidence, stereochemistry_defined, first_seen_doi)
-SELECT 'poly',
-       'RES 1b:b-dfruf-2:1|2:6(1:2)',
-       encode(digest('RES 1b:b-dfruf-2:1|2:6(1:2)','sha256'),'hex'),
+-- 菊粉重复单元 β-D-Fruf-(2→1)-：展开为一个拷贝（2 残基），
+-- 连接写作 "2o(1+1)1d"（残基1 的 C2 异头碳 → 残基2 的 O1）。
+INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula, molecular_weight, anomer, structure_confidence, stereochemistry_defined, first_seen_doi, structure_level, composition)
+SELECT 'poly', g.txt, encode(digest(g.txt,'sha256'),'hex'),
        'β-D-Fruf-(2→1)-[Inulin]', NULL, NULL, 'b',
-       'confirmed_1d', TRUE, '10.1016/j.carres.2019.107800'
+       'confirmed_1d', TRUE, '10.1016/j.carres.2019.107800', 'repeat_unit', 'Fru'
+FROM (SELECT E'RES\n1b:b-dfru-HEX-2:5\n2b:b-dfru-HEX-2:5\nLIN\n1:2o(1+1)1d'::text AS txt) g
 WHERE NOT EXISTS (SELECT 1 FROM sugars WHERE iupac_short LIKE 'β-D-Fruf-(2→1)-[Inulin]%');
 
 -- 菊粉重复单元残基（果糖, 呋喃型, β, 连接 2→1）
@@ -626,3 +644,16 @@ CREATE INDEX IF NOT EXISTS idx_corr_2d_linkage     ON nmr_correlations_2d(linkag
 -- 4.4 幂等约束: 同一 (结构, 文献, 谱类型, 溶剂) 只应有一条实验头
 CREATE UNIQUE INDEX IF NOT EXISTS uq_exp_sugar_source_type_solvent
     ON nmr_experiments(sugar_id, source_id, nmr_type, solvent);
+
+
+-- ============================================================================
+-- V5 段（结构表达等级 + 残基组成式）—— 列已在本文件 sugars 建表处提前声明
+-- 来源: migrations/v005_structure_level.sql
+-- ============================================================================
+-- 背景(P0-1): GlycoCT 只能表达确定结构。文献里的多糖常只给出甲基化/组成
+-- 信息, 残基间连接顺序未知, 硬生成 GlycoCT 等于伪造。故显式记录结构表达到
+-- 什么程度: complete / repeat_unit / composition_only, 供下游决定能否结构比对。
+-- ============================================================================
+
+CREATE INDEX IF NOT EXISTS idx_sugars_structure_level ON sugars(structure_level);
+CREATE INDEX IF NOT EXISTS idx_sugars_composition     ON sugars(composition);

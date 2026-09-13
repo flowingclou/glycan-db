@@ -41,6 +41,15 @@ import sys
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 
+# 标准 GlycoCT 生成器（同包模块；兼容"以脚本方式直接运行"的场景）
+try:
+    from .glycoct import build_glycoct as _build_glycoct
+except ImportError:  # pragma: no cover
+    try:
+        from glycoct import build_glycoct as _build_glycoct
+    except ImportError:
+        _build_glycoct = None
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("glycan_etl")
 
@@ -221,6 +230,10 @@ class GlycanRecord:
     experiments: List[NMRExperiment] = field(default_factory=list)
     qc_notes: List[str] = field(default_factory=list)
     qc_status: str = "pending"
+    # 结构表达等级（P0-1）: complete / repeat_unit / composition_only
+    structure_level: Optional[str] = None
+    # 残基组成式，如 "GalA6,Gal3,Ara3"（无法生成完整 GlycoCT 时的主要结构信息）
+    composition: Optional[str] = None
 
 
 # ============================================================================
@@ -320,11 +333,17 @@ def _merge_formula(f1: str, f2: str) -> str:
     return "".join(f"{k}{d[k]}" if d[k] > 1 else k for k in ("C", "H", "O", "N") if d[k] > 0)
 
 
-def _glycoct_for_mono(code: str, anomer: Optional[str]) -> str:
-    """单糖 GlycoCT 示例编码（生产环境建议用 glypy 生成标准编码）。"""
-    if anomer:
-        return f"RES 1b:{anomer}-{code.lower()}p-1:5|2:x"
-    return f"RES 1b:{code.lower()}p-1:5|2:x"
+def _glycoct_for_mono(code: str, anomer: Optional[str]) -> Optional[str]:
+    """单糖的标准 GlycoCT（P0-1: 委托 glycan_etl.glycoct 生成）。
+
+    旧实现手拼 "RES 1b:a-lglcp-1:5|2:x" —— 缺少 RES/LIN 分段、basetype
+    误用三字母码，不是合法 GlycoCT，glypy / GlyTouCan 等工具无法解析。
+    """
+    if _build_glycoct is None:
+        return None
+    return _build_glycoct(
+        [Residue(1, code, ring_form="p", anomer=anomer or "unknown",
+                 is_reducing_end=True)], "mono")["glycoct"]
 
 
 def normalize_sugar_record(iupac: str) -> dict:
@@ -338,7 +357,13 @@ def normalize_sugar_record(iupac: str) -> dict:
             f_b, w_b = MONO_FORMULA[b]
             formula = _merge_formula(f_a, f_b)
             mw = round(w_a + w_b - 18.015, 4)
-        glycoct = f"RES 1b:{anom}-{a.lower()}p-1:5(1:{c2})|2:x,1a:{b.lower()}p-1:5|2:x"
+        glycoct = None
+        if _build_glycoct is not None:
+            glycoct = _build_glycoct([
+                Residue(1, a, ring_form="p", anomer=anom, parent_carbon=int(c1)),
+                Residue(2, b, ring_form="p", anomer="unknown",
+                        parent_carbon=int(c2), is_reducing_end=True),
+            ], "oligo")["glycoct"]
         return {"glycoct": glycoct, "formula": formula, "mw": mw, "anomer": anom}
     # 单糖分支
     code = None
@@ -453,14 +478,15 @@ def build_residues(iupac: str, sugar_type: str) -> List[Residue]:
     return []
 
 
-def _glycoct_for_poly(residues: List[Residue]) -> str:
-    """多糖重复单元简化 GlycoCT（生产环境建议 glypy 生成标准编码）。"""
-    parts = []
-    for r in residues:
-        anom = "a" if r.anomer == "a" else "b"
-        parts.append(f"{anom}-{r.monosaccharide_name.lower()}{r.ring_form}-1:5"
-                     f"(1:{r.parent_carbon or 0})")
-    return "B|b:" + ",".join(parts)
+def _glycoct_for_poly(residues: List[Residue]) -> Optional[str]:
+    """多糖重复单元的标准 GlycoCT（P0-1: 委托 glycan_etl.glycoct 生成）。
+
+    注意：仅当残基连接顺序可从重复单元写法推出时才产出编码；纯组成型
+    多糖会返回 None（由 composition 字段承载组成信息），不伪造结构。
+    """
+    if _build_glycoct is None:
+        return None
+    return _build_glycoct(residues, "poly")["glycoct"]
 
 
 def parse_physicochemical(text: str) -> Optional[Physicochemical]:
@@ -677,6 +703,22 @@ def parse_block(header: str, body: str, doi: str, journal: str, year: int) -> Li
         physicochemical=parse_physicochemical(text),
         poly_props=parse_poly_props(text) if sugar_type == "poly" else None,
     )
+    # P0-1: 统一由标准 GlycoCT 生成器产出「结构编码 + 表达等级 + 组成式」。
+    # 覆盖前面任何临时编码，保证入库的结构表示始终来自同一处逻辑。
+    if _build_glycoct is not None:
+        # 单糖标题里的构型（如 "β-D-Glcp"）比糖名本身更可靠：
+        # parse_mono_title 只提取出 "Glc"，构型需要从标题回填到残基，
+        # 否则标准编码会退化成未指定的 "x-dglc"。
+        if sugar_type == "mono" and rec.anomer:
+            for r in rec.residues:
+                if (r.anomer or "").strip().lower() in ("", "unknown", "x"):
+                    r.anomer = rec.anomer
+        gx = _build_glycoct(rec.residues, sugar_type)
+        rec.glycoct = gx["glycoct"]
+        rec.structure_level = gx["level"]
+        rec.composition = gx["composition"]
+        for w in gx["warnings"]:
+            rec.qc_notes.append(f"结构编码: {w}")
     qc_precheck(rec)
     return [rec]
 
@@ -777,23 +819,46 @@ def insert_record(conn, rec: GlycanRecord) -> None:
     source_id = cur.fetchone()[0]
     has_2d = any(e.nucleus == "2D" for e in rec.experiments)
     glycoct = resolve_glycoct(rec)
+    sugar_cols = _table_columns(cur, "sugars")
+
+    # 动态拼列：兼容"已跑 / 未跑 v005 迁移"两种 schema
+    cols = ["sugar_type", "glycoct", "glycoct_hash", "iupac_short", "molecular_formula",
+            "molecular_weight", "anomer", "structure_confidence", "stereochemistry_defined",
+            "first_seen_doi"]
+    vals = [rec.sugar_type, glycoct, glycoct, rec.iupac_short, rec.molecular_formula,
+            rec.molecular_weight, rec.anomer,
+            "confirmed_2d" if has_2d else "confirmed_1d",
+            rec.anomer is not None, rec.doi]
+    placeholders = ["%s", "%s", "encode(digest(%s,'sha256'),'hex')", "%s", "%s",
+                    "%s", "%s", "%s", "%s", "%s"]
+    for col, val in (("structure_level", getattr(rec, "structure_level", None)),
+                     ("composition", getattr(rec, "composition", None))):
+        if col in sugar_cols:
+            cols.append(col)
+            vals.append(val)
+            placeholders.append("%s")
+
+    # 命中同一结构时只"补空 / 升级", 不覆盖已有的可读结构名
+    set_clauses = [
+        "iupac_short = CASE WHEN sugars.iupac_short IS NULL OR sugars.iupac_short = '' "
+        "                   THEN EXCLUDED.iupac_short ELSE sugars.iupac_short END",
+        "structure_confidence = CASE WHEN sugars.structure_confidence = 'confirmed_2d' "
+        "                            THEN sugars.structure_confidence "
+        "                            ELSE EXCLUDED.structure_confidence END",
+        "updated_at = now()",
+    ]
+    if "structure_level" in sugar_cols:
+        set_clauses.append(
+            "structure_level = COALESCE(EXCLUDED.structure_level, sugars.structure_level)")
+    if "composition" in sugar_cols:
+        set_clauses.append(
+            "composition = COALESCE(EXCLUDED.composition, sugars.composition)")
+
     cur.execute(
-        "INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula, "
-        "molecular_weight, anomer, structure_confidence, stereochemistry_defined, first_seen_doi) "
-        "VALUES (%s,%s, encode(digest(%s,'sha256'),'hex'),%s,%s,%s,%s,%s,%s,%s) "
-        # 命中同一结构时只"补空 / 升级", 不覆盖已有的可读结构名
-        "ON CONFLICT (glycoct) DO UPDATE SET "
-        "  iupac_short = CASE WHEN sugars.iupac_short IS NULL OR sugars.iupac_short = '' "
-        "                      THEN EXCLUDED.iupac_short ELSE sugars.iupac_short END, "
-        "  structure_confidence = CASE WHEN sugars.structure_confidence = 'confirmed_2d' "
-        "                              THEN sugars.structure_confidence "
-        "                              ELSE EXCLUDED.structure_confidence END, "
-        "  updated_at = now() "
+        f"INSERT INTO sugars ({', '.join(cols)}) VALUES ({', '.join(placeholders)}) "
+        f"ON CONFLICT (glycoct) DO UPDATE SET {', '.join(set_clauses)} "
         "RETURNING sugar_id",
-        (rec.sugar_type, glycoct, glycoct, rec.iupac_short,
-         rec.molecular_formula, rec.molecular_weight, rec.anomer,
-         "confirmed_2d" if has_2d else "confirmed_1d",
-         rec.anomer is not None, rec.doi),
+        vals,
     )
     sugar_id = cur.fetchone()[0]
 

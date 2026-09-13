@@ -84,16 +84,23 @@ INSERT INTO literature (doi, journal, year, title, authors) VALUES
 ('10.1016/j.carres.2019.107800', 'Carbohydr. Res.', 2019, '1H and 13C chemical shifts of N-acetyl aminosugars', 'Kim, S.; Park, J.')
 ON CONFLICT (doi) DO NOTHING;
 
--- 2.2 单糖主表（D-葡萄糖 α/β、D-半乳糖 β、N-乙酰氨基葡萄糖 β、N-乙酰神经氨酸）
-INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula, molecular_weight, anomer, structure_confidence, stereochemistry_defined, first_seen_doi) VALUES
-('mono', 'RES 1b:a-lglcp-1:5|2:x', encode(digest('RES 1b:a-lglcp-1:5|2:x', 'sha256'), 'hex'),
- 'α-D-Glcp', 'C6H12O6', 180.1559, 'a', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'),
-('mono', 'RES 1b:b-lglcp-1:5|2:x', encode(digest('RES 1b:b-lglcp-1:5|2:x', 'sha256'), 'hex'),
- 'β-D-Glcp', 'C6H12O6', 180.1559, 'b', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'),
-('mono', 'RES 1b:b-dgalp-1:5|2:x', encode(digest('RES 1b:b-dgalp-1:5|2:x', 'sha256'), 'hex'),
- 'β-D-Galp', 'C6H12O6', 180.1559, 'b', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'),
-('mono', 'RES 1b:b-dglcpnac-1:5|2:x', encode(digest('RES 1b:b-dglcpnac-1:5|2:x', 'sha256'), 'hex'),
- 'β-D-GlcpNAc', 'C8H15NO6', 221.2078, 'b', 'confirmed_2d', TRUE, '10.1016/j.carres.2019.107800')
+-- 2.2 单糖主表（D-葡萄糖 α/β、D-半乳糖 β、N-乙酰氨基葡萄糖 β）
+-- 结构编码为**标准 GlycoCT**（RES 分段 + 规范 basetype），可被 glypy /
+-- GlyTouCan 等工具解析；旧版手拼的 'RES 1b:a-lglcp-1:5|2:x' 不是合法
+-- GlycoCT，外部工具无法解析。N-乙酰氨基糖按规范用独立取代基残基表达。
+INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula,
+                    molecular_weight, anomer, structure_confidence, stereochemistry_defined,
+                    first_seen_doi)
+SELECT v.sugar_type, v.glycoct, encode(digest(v.glycoct, 'sha256'), 'hex'),
+       v.iupac_short, v.molecular_formula, v.molecular_weight, v.anomer,
+       v.structure_confidence, v.stereochemistry_defined, v.first_seen_doi
+FROM (VALUES
+    ('mono', E'RES\n1b:a-dglc-HEX-1:5', 'α-D-Glcp', 'C6H12O6', 180.1559, 'a', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'),
+    ('mono', E'RES\n1b:b-dglc-HEX-1:5', 'β-D-Glcp', 'C6H12O6', 180.1559, 'b', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'),
+    ('mono', E'RES\n1b:b-dgal-HEX-1:5', 'β-D-Galp', 'C6H12O6', 180.1559, 'b', 'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'),
+    ('mono', E'RES\n1b:b-dglc-HEX-1:5\n2s:n-acetyl\nLIN\n1:1d(2+1)2n', 'β-D-GlcpNAc', 'C8H15NO6', 221.2078, 'b', 'confirmed_2d', TRUE, '10.1016/j.carres.2019.107800')
+) AS v(sugar_type, glycoct, iupac_short, molecular_formula, molecular_weight, anomer,
+       structure_confidence, stereochemistry_defined, first_seen_doi)
 ON CONFLICT (glycoct) DO NOTHING;
 
 -- 2.3 谱图实验记录（D2O, 500 MHz, 25°C）

@@ -11,5 +11,10 @@ psycopg2-binary>=2.9.0
 # YAML 配置解析（core / batch_etl）
 PyYAML>=6.0
 
+# 标准 GlycoCT 生成结果的校验（glycan_etl/glycoct.py）
+# 仅用于校验，缺失时生成功能不受影响（validate_glycoct 返回"跳过"）
+glypy>=1.0.17
+
 # 实测通过组合: Python 3.14 + pdfplumber 0.11.10 + psycopg2-binary 2.9.13
 #              + PostgreSQL 16.15 + pgvector 0.8.6
+#              + glypy 1.0.17

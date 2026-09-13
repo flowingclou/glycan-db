@@ -29,11 +29,13 @@ AIGC:
 |------|------|
 | `glycan_etl/core.py` | 核心解析入库引擎（正文行内式：单糖/寡糖/多糖 + 1D/2D 谱） |
 | `glycan_etl/table_parser.py` | 表格式文献解析器（分子量表 / 位移归属表 / 正文键连） |
+| `glycan_etl/glycoct.py` | 标准 GlycoCT 结构编码生成 + 校验（含结构表达等级判定） |
 | `glycan_etl/embeddings.py` | BGE-M3 向量化（回写 `nmr_shifts_1d.embedding`） |
 | `pipelines/batch_etl.py` | 批量执行器（本技能主入口，扫描目录/多文件批量处理） |
+| `pipelines/backfill_glycoct.py` | 存量记录结构编码回填/修正（老库升级用） |
 | `pipelines/config.yaml` | 配置示例（文献溯源 + 数据库连接），真实配置另存 `config.local.yaml` |
 | `etl_reports/` | 批量执行自动生成的报告目录（CSV + Markdown，时间戳命名） |
-| `db/init.sql` | 一键幂等建库（含向量列）；分步版见 `db/migrations/v001…v004` |
+| `db/init.sql` | 一键幂等建库（含向量列）；分步版见 `db/migrations/v001…v005` |
 | `db/schema_design.md` | schema 设计文档 |
 
 ## 数据库表
@@ -41,7 +43,8 @@ AIGC:
 `sugars` / `residues` / `nmr_experiments` / `nmr_shifts_1d` / `nmr_correlations_2d` /
 `physicochemical` / `polysaccharide_props` / `literature`
 （建表二选一：① 一键 `db/init.sql`；② 分步 `db/migrations/v001_mvp.sql` →
-`v002_extend.sql` → `v003_qc.sql` → `v004_vector_and_provenance.sql`。
+`v002_extend.sql` → `v003_qc.sql` → `v004_vector_and_provenance.sql` →
+`v005_structure_level.sql`。
 向量检索列 `nmr_shifts_1d.embedding` 由 v004 创建，漏掉它 `embeddings.py` 会报列不存在）
 
 ## 触发场景
@@ -114,11 +117,15 @@ python3 pipelines/batch_etl.py --dir "/path/to/目录" --config pipelines/config
 3. **重复导入安全**：同一 PDF 重跑不会重复累积（按 结构+文献+谱类型+溶剂 先清后写）。
 4. **结构编码缺失不会串档**：解析不出 GlycoCT 时用「结构指纹+DOI」生成占位编码，
    不同结构彼此隔离，不会互相覆盖。
-5. **溯源元数据**：批量多文献务必用 `--meta`，否则全部 PDF 会共用 config 的同一 doi/journal/year，导致溯源串档。
-6. **解析范围**：仅支持正文含 `.pdf` 文本层的 SI（扫描件需先 OCR）；结构写法仅支持 IUPAC 连接式 /
+5. **结构表达等级**：`sugars.structure_level` 说明这条记录能比对到什么程度 ——
+   `complete`（单糖/寡糖，连接明确）、`repeat_unit`（单一重复单元多糖）、
+   `composition_only`（只有组成，`glycoct` 为空、看 `composition`）。
+   只有前两者能做结构级比对；`composition_only` 不得当作确定结构使用。
+6. **溯源元数据**：批量多文献务必用 `--meta`，否则全部 PDF 会共用 config 的同一 doi/journal/year，导致溯源串档。
+7. **解析范围**：仅支持正文含 `.pdf` 文本层的 SI（扫描件需先 OCR）；结构写法仅支持 IUPAC 连接式 /
    单糖标题行 / 多糖重复单元写法（`→4)-β-D-Glcp-(1→` 与 `(1→4)-linked π-D-Glcp`）。
-7. **依赖**：`pip install pdfplumber psycopg2-binary pyyaml`
-8. 中间 JSON（完整解析明细）可用 `--save-json` 开启，与报告同目录输出。
+8. **依赖**：`pip install pdfplumber psycopg2-binary pyyaml glypy`
+9. 中间 JSON（完整解析明细）可用 `--save-json` 开启，与报告同目录输出。
 
 ## 常见问题
 

@@ -89,21 +89,24 @@ CREATE TABLE IF NOT EXISTS spectrum_files (
 -- ----------------------------------------------------------------------------
 -- 3. 寡糖示例：麦芽糖  α-D-Glcp-(1→4)-D-Glcp（D2O）
 -- ----------------------------------------------------------------------------
+-- 结构编码为标准 GlycoCT：残基1 = 非还原端 α-Glc（提供异头碳），
+-- 残基2 = 还原端（C4 被取代），连接写作 "2o(4+1)1d"。
 INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula, molecular_weight, anomer, structure_confidence, stereochemistry_defined, first_seen_doi)
-SELECT 'oligo',
-       'RES 1b:a-dglcp-1:5(1:4)|2:x,1a:b-dglcp-1:5|2:x',
-       encode(digest('RES 1b:a-dglcp-1:5(1:4)|2:x,1a:b-dglcp-1:5|2:x','sha256'),'hex'),
+SELECT 'oligo', g.txt, encode(digest(g.txt,'sha256'),'hex'),
        'α-D-Glcp-(1→4)-D-Glcp', 'C12H22O11', 342.2965, 'a',
        'confirmed_2d', TRUE, '10.1021/acs.joc.0c00000'
+FROM (SELECT E'RES\n1b:a-dglc-HEX-1:5\n2b:x-dglc-HEX-1:5\nLIN\n1:2o(4+1)1d'::text AS txt) g
 WHERE NOT EXISTS (SELECT 1 FROM sugars WHERE iupac_short = 'α-D-Glcp-(1→4)-D-Glcp');
 
--- 麦芽糖残基组成（还原端 Glc-b, 非还原端 Glc-a, 连接 1→4）
+-- 麦芽糖残基组成：非还原端 Glc-a 提供异头碳 C1，还原端（水溶液中 α/β 平衡，
+-- 构型记为 unknown）的 C4 被取代。
+-- 方向约定与 glycan_etl/core.py build_residues() 一致：残基1 = 非还原端。
 INSERT INTO residues (sugar_id, residue_seq, monosaccharide_name, ring_form, anomer, is_reducing_end, parent_carbon, linkage_branch)
-SELECT s.sugar_id, 1, 'Glc', 'p', 'b', TRUE,  NULL, 0 FROM sugars s
+SELECT s.sugar_id, 1, 'Glc', 'p', 'a', FALSE, NULL, 0 FROM sugars s
 WHERE s.iupac_short = 'α-D-Glcp-(1→4)-D-Glcp'
   AND NOT EXISTS (SELECT 1 FROM residues r WHERE r.sugar_id = s.sugar_id AND r.residue_seq = 1);
 INSERT INTO residues (sugar_id, residue_seq, monosaccharide_name, ring_form, anomer, is_reducing_end, parent_carbon, linkage_branch)
-SELECT s.sugar_id, 2, 'Glc', 'p', 'a', FALSE, 4, 0 FROM sugars s
+SELECT s.sugar_id, 2, 'Glc', 'p', 'unknown', TRUE, 4, 0 FROM sugars s
 WHERE s.iupac_short = 'α-D-Glcp-(1→4)-D-Glcp'
   AND NOT EXISTS (SELECT 1 FROM residues r WHERE r.sugar_id = s.sugar_id AND r.residue_seq = 2);
 
@@ -162,12 +165,13 @@ WHERE s.iupac_short = 'α-D-Glcp-(1→4)-D-Glcp' AND l.doi = '10.1021/acs.joc.0c
 -- ----------------------------------------------------------------------------
 -- 4. 多糖示例：菊粉 Inulin  β-D-Fruf-(2→1)- (重复单元)
 -- ----------------------------------------------------------------------------
+-- 菊粉重复单元 β-D-Fruf-(2→1)-：展开为一个拷贝（2 残基），
+-- 连接写作 "2o(1+1)1d"（残基1 的 C2 异头碳 → 残基2 的 O1）。
 INSERT INTO sugars (sugar_type, glycoct, glycoct_hash, iupac_short, molecular_formula, molecular_weight, anomer, structure_confidence, stereochemistry_defined, first_seen_doi)
-SELECT 'poly',
-       'RES 1b:b-dfruf-2:1|2:6(1:2)',
-       encode(digest('RES 1b:b-dfruf-2:1|2:6(1:2)','sha256'),'hex'),
+SELECT 'poly', g.txt, encode(digest(g.txt,'sha256'),'hex'),
        'β-D-Fruf-(2→1)-[Inulin]', NULL, NULL, 'b',
        'confirmed_1d', TRUE, '10.1016/j.carres.2019.107800'
+FROM (SELECT E'RES\n1b:b-dfru-HEX-2:5\n2b:b-dfru-HEX-2:5\nLIN\n1:2o(1+1)1d'::text AS txt) g
 WHERE NOT EXISTS (SELECT 1 FROM sugars WHERE iupac_short LIKE 'β-D-Fruf-(2→1)-[Inulin]%');
 
 -- 菊粉重复单元残基（果糖, 呋喃型, β, 连接 2→1）

@@ -85,9 +85,25 @@ Parquet 导出（供 AI 训练）+ PostgreSQL 在线查询
 | glytoucan_id | TEXT | | GlyTouCan 注册 ID |
 | monosaccharidedb_id | TEXT | | MonosaccharideDB ID |
 | structure_confidence | TEXT | NOT NULL DEFAULT 'reported', CHECK IN ('confirmed_2d','confirmed_1d','inferred','reported') | 结构确认等级 |
+| structure_level | TEXT | CHECK IN ('complete','repeat_unit','composition_only') | 结构**表达**程度：能否做结构级比对（见 §3.1.1） |
+| composition | TEXT | | 残基组成式，如 `GalA7,Ara3,Gal3`（`composition_only` 时的主要结构信息） |
 | stereochemistry_defined | BOOLEAN | NOT NULL DEFAULT FALSE | 立体化学是否完全明确（α/β、D/L） |
 | first_seen_doi | TEXT | | 首次出现的源文献 DOI |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL | 时间戳 |
+
+#### 3.1.1 `structure_level` —— 表达程度（P0-1）
+
+GlycoCT 只能表达**确定结构**。文献里大量多糖只给出甲基化/组成信息，残基间的
+连接顺序未知；此时硬生成编码等于伪造数据。因此把"能表达什么"显式记下来：
+
+| 取值 | 含义 | glycoct 字段 | 可用于结构比对 |
+|---|---|---|---|
+| `complete` | 单糖 / 寡糖，连接明确 | 完整编码 | ✅ |
+| `repeat_unit` | 单一重复单元多糖 | 一个重复单元的编码 | ✅（按重复单元比对） |
+| `composition_only` | 仅残基组成，连接顺序未知 | 空 | ❌（只能按 `composition` 筛选） |
+
+注意与 `structure_confidence` 的区别：后者说"这条结构有多可信"，
+`structure_level` 说"这条记录把结构表达到什么程度"。两者独立。
 
 ### 3.2 `residues` —— 糖残基表（结构组成）
 
@@ -230,6 +246,11 @@ CREATE TABLE sugars (
     monosaccharidedb_id TEXT,
     structure_confidence TEXT NOT NULL DEFAULT 'reported'
                         CHECK (structure_confidence IN ('confirmed_2d','confirmed_1d','inferred','reported')),
+    -- 结构表达程度：complete / repeat_unit / composition_only（见 §3.1.1）
+    structure_level     TEXT
+                        CHECK (structure_level IN ('complete','repeat_unit','composition_only')),
+    -- 残基组成式，如 'GalA7,Ara3,Gal3'（composition_only 时的主要结构信息）
+    composition         TEXT,
     stereochemistry_defined BOOLEAN NOT NULL DEFAULT FALSE,
     first_seen_doi      TEXT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
