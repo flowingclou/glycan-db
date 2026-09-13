@@ -52,10 +52,13 @@ pip install -r requirements.txt
 ### 2.3 自检
 
 ```bash
-python3 tests/run_tests.py     # py_compile 全仓校验 + 回归测试 + batch_etl --self-test
+python3 tests/run_tests.py     # py_compile + 回归测试 + 域级/一致性测试 + batch_etl --self-test
 # 或单跑
-python3 pipelines/batch_etl.py --self-test   # 输出 SELF-TEST PASS 即正常
-python3 tests/test_regressions.py            # 11 项防回退回归测试（不依赖数据库）
+python3 pipelines/batch_etl.py --self-test          # 输出 SELF-TEST PASS 即正常
+python3 tests/test_regressions.py                   # 31 项防回退回归测试（不依赖数据库）
+python3 tests/test_domain_and_consistency.py        # 17 项域级结论 + 交叉一致性测试
+# 有样本 PDF 时可跑端到端（否则该用例自动跳过）:
+GLYCAN_TEST_PDF=/path/to/paper.pdf python3 tests/test_domain_and_consistency.py
 ```
 
 ### 2.4 批量解析 PDF
@@ -104,24 +107,36 @@ glycan-db/
 │   │   ├── v003_qc.sql     #   质控触发器 R1-R10 + 全库校验函数
 │   │   ├── v004_vector_and_provenance.sql
 │   │   │                   #   pgvector embedding 列 + HNSW 索引 + 溯源列
-│   │   └── v005_structure_level.sql
-│   │                       #   结构表达等级 + 残基组成式
+│   │   ├── v005_structure_level.sql
+│   │   │                   #   结构表达等级 + 残基组成式
+│   │   └── v006_domain_level.sql
+│   │                       #   域级骨架等级 domain_only + domain_architecture
 │   └── schema_design.md    # 数据库 schema 设计文档
 ├── glycan_etl/             # 解析引擎包
 │   ├── __init__.py         #   包初始化 + __version__
 │   ├── core.py             #   单份 PDF 解析入库引擎（v3.x 全功能）
 │   ├── table_parser.py     #   表格式文献解析器（分子量表/归属表/正文键连）
-│   ├── glycoct.py          #   标准 GlycoCT 结构编码生成 + 校验
+│   ├── glycoct.py          #   标准 GlycoCT 结构编码 + 域级骨架抽取 + 表达等级
+│   ├── consistency.py      #   交叉一致性校验（组成%↔残基表↔甲基化↔正文构型）
 │   └── embeddings.py       #   BGE-M3 向量化脚本（API Key 仅从环境变量读取）
 ├── pipelines/
 │   ├── batch_etl.py        # 批量执行器（自检/批量 dry-run/批量入库/汇总报告）
 │   ├── backfill_glycoct.py # 存量记录结构编码回填/修正
+│   ├── upgrade_placeholder_keys.py
+│   │                       # 占位键记录原地升级（等级提升，写前对账防丢数据）
 │   └── config.yaml         # 配置示例（含数据库连接占位符与溯源字段）
 ├── tests/
-│   ├── run_tests.py        # 自检入口（py_compile + 回归测试 + self-test）
-│   └── test_regressions.py # 防回退回归测试（结构覆盖/命名/标题抽取）
+│   ├── run_tests.py        # 自检入口（py_compile + 回归 + 域级/一致性 + self-test）
+│   ├── test_regressions.py # 防回退回归测试（结构覆盖/命名/标题抽取）
+│   └── test_domain_and_consistency.py
+│                           # 域级结论抽取 + 交叉一致性校验回归测试
 └── docs/
-    └── skill_guide.md      # glycan-etl 技能使用说明（可用即用指南）
+    ├── skill_guide.md      # glycan-etl 技能使用说明（可用即用指南）
+    ├── assessment_and_optimization.md
+    │                       # 项目评估与分级优化建议（含实测证据）
+    ├── hawthorn_HP_complete_structure.md
+    │                       # 山楂多糖 HP 完整结构转录（原图在 Fig. 3E，位图）
+    └── evidence/           # 上述转录的证据图（Fig. 3 整幅 / 面板 E 分段）
 ```
 
 ---
@@ -183,13 +198,15 @@ LIN
 大量多糖只给出甲基化/组成信息、残基间连接顺序未知。硬生成编码等于伪造
 数据，因此 `sugars.structure_level` 显式记录表达程度：
 
-| structure_level | 含义 | glycoct 字段 |
-|---|---|---|
-| `complete` | 单糖/寡糖，连接明确 | 完整结构编码 |
-| `repeat_unit` | 单一重复单元多糖 | 一个重复单元的编码 |
-| `composition_only` | 仅残基组成，连接顺序未知 | 空；结构信息在 `composition`（如 `GalA7,Ara3,Gal3,Rha2,GlcA`） |
+| structure_level | 含义 | glycoct 字段 | 结构信息在哪 |
+|---|---|---|---|
+| `complete` | 单糖/寡糖，连接明确 | 完整结构编码 | `glycoct` |
+| `repeat_unit` | 单一重复单元多糖 | 一个重复单元的编码 | `glycoct` |
+| `domain_only` | **只到域级骨架**（如"主链为大量 HG 域 + 少量带侧链的 RG-I 域"） | 空 | `domain_architecture` + `composition` |
+| `composition_only` | 仅残基组成，连接顺序未知 | 空 | `composition`（如 `GalA7,Ara3,Gal3,Rha2,GlcA`） |
 
-下游按此字段决定能否做结构级比对：`complete` / `repeat_unit` 可直接比对，
+下游按此字段决定能否做结构级比对：`complete` / `repeat_unit` 可直接比对；
+`domain_only` 可按域架构检索（如"含 HG 主链 + RG-I 侧链的果胶"）；
 `composition_only` 只能按组成筛选。存量记录可用回填脚本修正：
 
 ```bash
@@ -226,6 +243,53 @@ the connection of the main chain was
   R2 `α-D-Glcp-(1→6)-α-D-Glcp-(1→` → 挂到 4,6-α-D-Glcp 的 O6
 - 5 条链共 19 残基、18 条糖苷键，`composition = Gal12,Glc5,GalA2`，
   GlycoCT 通过 glypy 校验
+
+#### 没有连接式结论句时：退回"域级骨架"而不是丢弃
+
+多数多糖文献（尤其果胶类）既不给逐残基连接式，也不只是组成百分比，而是给一句
+**域级结论**，例如山楂多糖 HP（IJBM 2025, `10.1016/j.ijbiomac.2025.145713`）：
+
+> "These results suggest that HP is mainly composed of **a large number of HG domains
+> and a small number of RG-I domains with side chains**."
+
+这句话**不含连接式箭头**，因此上面那套 `main chain ... was →[...]` 的触发词抓不到。
+旧版会把它整条丢掉、降级为 `composition_only`，于是"主链是 HG、侧链挂在 RG-I 上"
+这一层信息完全消失。现在改为抽出**域架构**，落到 `domain_only` 档：
+
+```json
+{"domains": [{"name": "HG",   "quantity": "large", "side_chains": false},
+             {"name": "RG-I", "quantity": "small", "side_chains": true}],
+ "evidence": "…HP is mainly composed of a large number of HG domains…",
+ "source": "text_conclusion"}
+```
+
+**为什么不再往上"推"出完整序列**：残基级连接信息（每个残基被取代的位点）**不含
+残基间的连接顺序**。以 HP 为例，16 个残基类型对应的"供体→受体位点"入射分配有
+P(46,15)≈6.7×10²³ 种，即使按同型残基可交换性保守折减仍有 ~10²² 量级等价解。
+所以 `domain_only` 是这套数据能安全支撑的上限，硬生成序列等于伪造。
+
+> 完整结构图有时只存在于**图片**里（HP 的完整结构式在 Fig. 3E，该面板是位图，
+> PDF 文本层中不存在）。这类"图片格式的长链"纯文本管线无解，需要图形区域检测 +
+> OCR 或人工录入；`domain_only` 至少保证不把已拿到的域级结论一起丢掉。
+
+#### 交叉一致性校验（`glycan_etl/consistency.py`）
+
+同一篇文献的"组成表 / 位移归属表 / 甲基化分析 / 摘要"本应互相印证，实际却经常
+互相打架且**完全静默**。入库前现在会跑 C 系列规则，命中即写入 `qc_notes` 并置
+`qc_status='flagged'`（默认仍入库，便于回溯）：
+
+| 规则 | 检查内容 |
+|---|---|
+| C1 | 单糖组成百分比合计是否 ≈100%（低于阈值说明表格漏抽行） |
+| C2 | 单糖种类在"组成表 ↔ 残基表"之间是否一致 |
+| C3 | 单糖种类在"残基表 ↔ 甲基化分析"之间是否一致 |
+| C4 | 文献分子式 ↔ 由残基组成推算的分子式（含 N-乙酰氨基糖的 N） |
+| C5 | 摘要/正文陈述的构型 ↔ 归属表实测构型（如摘要写 α-D-galactose 而表里是 β-D-Galp） |
+| C6 | 甲基化连接类型数 ↔ 位移表残基类型数是否同一量级 |
+
+以 HP 为例，这 6 条一次性揪出 4 处论文内部矛盾：组成百分比合计仅 **93.59%**、
+**Man 只在组成表出现**（残基表里没有）、**甲基化多出 Glc**、**摘要写 α-D-galactose
+而 Table 2 实测为 β-D-Galp**。这些正是"真值库"最需要提前暴露的问题。
 
 表格归属的 12 个残基类型仍保留在 `residues` 表，用于与 152 个位移一一对应
 （表格只列残基类型，正文连接式才给出聚合度）。若正文没有该结论句，
