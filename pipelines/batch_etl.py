@@ -137,6 +137,10 @@ def parse_one_pdf(gle, pdf_path, doi, journal, year):
 #               都未命中                       -> inline（默认 core，零风险）
 DETECT_CFG = {
     "head_pages": 5,                 # 读取前几页做轻量探测
+    # 前几页无任何清晰信号时的扩展探测页数：多糖文献的结构表征数据
+    # （甲基化表、位移归属表）常排在第 6~10 页，只读前 5 页会误判为
+    # 行内型，进而触发"先跑行内、失败再跑表格"的双跑回退。
+    "deep_head_pages": 12,
     # 表格型特征
     "table_caption_re": r"(?m)^\s*Table\s+\d+[\.:\s]",
     "ppm_token_re": r"\d+\.\d+",
@@ -348,6 +352,16 @@ def dispatch_pdf(gle, pdf_path, doi, journal, year):
     probe_text = peek_pdf_text(pdf_path)
     mode, ev = detect_pdf_type(text=None, pdf_path=pdf_path) if probe_text is None \
         else detect_pdf_type(text=probe_text)
+    # 自适应深探测：前几页没有任何清晰信号时，扩展到更多页重探。
+    # 不这样做会把"数据排在 6~10 页"的文献误判为行内型，触发双跑回退
+    # （既慢，报告里的 mode 也会误导使用者）。
+    if not ev.get("table_hits") and not ev.get("inline_hits"):
+        deep = peek_pdf_text(pdf_path, head_pages=DETECT_CFG["deep_head_pages"])
+        if deep:
+            mode2, ev2 = detect_pdf_type(text=deep)
+            if ev2.get("table_hits") or ev2.get("inline_hits"):
+                mode, ev = mode2, ev2
+                ev["probe"] = "deep"
     text = blocks = None
     records = []
 
@@ -387,11 +401,17 @@ def dispatch_pdf(gle, pdf_path, doi, journal, year):
             _r, _, trecs = _run_table()
             records = merge_records(irecs + trecs)
             ev["fallback"] = "inline-empty-run-table"
-    else:  # mixed：两路都跑并合并去重
-        t, bl, irecs = _run_inline()
-        text, blocks = t, bl
+    else:  # mixed：优先表格路；仅当确有行内特征时才补跑行内路
         _r, _, trecs = _run_table()
-        records = merge_records(irecs + trecs)
+        if trecs and not ev.get("inline_hits"):
+            # 行内特征为 0（如整篇 NMR 数据只出现在表格里）：再跑一次全文行内
+            # 解析纯属浪费——这条路对 15 页 PDF 要额外数秒，且必然 0 结果。
+            records = trecs
+            ev["note"] = "table-only (inline 特征为 0)"
+        else:
+            t, bl, irecs = _run_inline()
+            text, blocks = t, bl
+            records = merge_records(irecs + trecs)
     return mode, ev, text, blocks, records
 
 

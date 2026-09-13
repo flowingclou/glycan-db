@@ -224,6 +224,44 @@ def test_core_uses_standard_glycoct():
 
 
 # ---------------------------------------------------------------------------
+# 5. 首页标题 / 多糖命名（多行标题曾只取一行，命名曾完全取不到）
+# ---------------------------------------------------------------------------
+def test_title_joins_multiline_and_drops_journal_header():
+    words = [
+        # 页眉期刊名（同为最大字号，必须剔除）
+        _w("Journal", 40, 100, 20, 14.0), _w("of", 104, 116, 20, 14.0),
+        _w("Pharmaceutical", 120, 200, 20, 14.0), _w("Analysis", 204, 260, 20, 14.0),
+        # 跨 3 行的正文标题
+        _w("Structural", 60, 130, 180, 14.0),
+        _w("characterization", 134, 230, 180, 14.0),
+        _w("of", 234, 248, 180, 14.0),
+        _w("a", 252, 260, 180, 14.0),
+        _w("novel", 264, 300, 180, 14.0),
+        _w("polysaccharide", 304, 400, 180, 14.0),
+        _w("from", 60, 96, 200, 14.0),
+        _w("Polygonati", 100, 170, 200, 14.0),
+        _w("Rhizoma", 174, 230, 200, 14.0),
+    ]
+    meta = tp.extract_meta([_page(words)])
+    assert "Structural" in meta["title"] and "Rhizoma" in meta["title"], meta
+    assert "Journal" not in meta["title"], meta
+
+
+def test_polysaccharide_name_from_naming_sentence():
+    """标题只给泛称时，从正文命名句取文献内编号（如 SPR-1）。"""
+    page = _page([])
+    page["text"] = "A purified polysaccharide was obtained, referred to as SPR-1."
+    meta = tp.extract_meta([page])
+    assert meta["polysaccharide"] == "SPR-1", meta
+
+
+def test_empty_parse_yields_no_record():
+    """没有任何实质数据时不得产出记录 —— 否则报告会把失败显示成成功。"""
+    rec = tp.build_record({"polysaccharide": None}, {"name": "x"}, [], [], None)
+    assert rec is None
+
+
+# ---------------------------------------------------------------------------
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

@@ -250,7 +250,9 @@ def extract_pdf_text(pdf_path: str) -> str:
     pages = []
     with pdfplumber.open(pdf_path) as pdf:
         for i, page in enumerate(pdf.pages, start=1):
-            t = page.extract_text() or ""
+            # x_tolerance 默认 3 对"字间距紧密"的排版会把相邻词粘连
+            # （"Table 1"→"Table1"），使依赖空白分隔的正则全部失效。
+            t = page.extract_text(x_tolerance=1.5) or ""
             pages.append(f"\n<<<PAGE {i}>>>\n{t}")
     return "\n".join(pages)
 

@@ -163,6 +163,13 @@ PARSER_VER = "1.0.0"
 # 基础工具：词级坐标 → 行重建
 # ----------------------------------------------------------------------------
 ROW_DY = 5          # 同一视觉行的 top 容差（px）
+
+# 词/字符间距容差。pdfplumber 默认 3，对"字间距紧密"的排版（部分 Elsevier /
+# Wiley PDF）会把相邻词粘成一个词 —— "Table 1"→"Table1"、
+# "Methylated sugar"→"Methylatedsugar"，于是所有依赖空白分隔的正则全部失效。
+# 实测这类 PDF 的粘连率从 ~11% 降到 0~1%，而正常排版的 PDF 不受影响。
+X_TOLERANCE = 1.5
+
 ND_TOKENS = {"–", "-", "—", "nd", "n.d.", "n.d", "…"}
 
 
@@ -180,9 +187,10 @@ def pdf_pages(pdf_path: str) -> List[Dict[str, Any]]:
         for i, page in enumerate(pdf.pages, 1):
             words = page.extract_words(
                 keep_blank_chars=False, use_text_flow=False,
+                x_tolerance=X_TOLERANCE,
                 extra_attrs=["size", "fontname"])
             lines = cluster_rows(words, dy=ROW_DY)
-            text = page.extract_text() or ""
+            text = page.extract_text(x_tolerance=X_TOLERANCE) or ""
             pages.append({
                 "page": i, "n_pages": n_pages, "text": text,
                 "words": words, "lines": lines,
@@ -482,6 +490,96 @@ def parse_shift_table(page: Dict[str, Any], start_idx: int,
     return entries, next_idx
 
 
+# ----------------------------------------------------------------------------
+# 2b) H/C 成对行式位移表（`Symbol | Glycosyl residues | H1/C1 | H2/C2 | ...`）
+# ----------------------------------------------------------------------------
+# 糖类文献里非常常见：每个残基占两行 —— 第一行是 ¹H 位移（带残基编码与
+# IUPAC 描述），第二行是对应的 ¹³C 位移（只有数值）。列以制表位对齐。
+RE_HC_COL = re.compile(r"^H(?P<pos>\d+[ab]?)(?:/C\d+)?$")
+
+
+def _nearest_anchor(anchors: "OrderedDict[str, float]", x0: float,
+                    tol: float = 18.0) -> Optional[str]:
+    """按 x0 最近邻把数值归位到列锚点（超出容差视为不着边）。"""
+    best, bd = None, 1e9
+    for name, ax in anchors.items():
+        d = abs(x0 - ax)
+        if d < bd:
+            best, bd = name, d
+    return best if bd <= tol else None
+
+
+def parse_hc_shift_table(page: Dict[str, Any], start_idx: int,
+                         max_rows: int = 140) -> Tuple[List[dict], int]:
+    """解析 H/C 成对行式位移归属表，输出与 parse_shift_table 同构。
+
+    列锚点取表头词的 **x0**（实测数据行的 x0 与表头列 x0 完全一致，比用
+    中心点更稳）。部分 PDF 的 '→' 字形被字体映射成 '/'，这里统一还原，
+    否则下游 parse_mono_from_iupac 无法识别连接位点。
+    """
+    lines = page["lines"]
+    anchors: "OrderedDict[str, float]" = OrderedDict()
+    for idx in range(start_idx, min(start_idx + 8, len(lines))):
+        found: "OrderedDict[str, float]" = OrderedDict()
+        for w in lines[idx]["words"]:
+            m = RE_HC_COL.match(w["text"].strip())
+            if m and m.group("pos") not in found:
+                found[m.group("pos")] = w["x0"]
+        if len(found) >= 4:
+            anchors = OrderedDict(sorted(found.items(), key=lambda kv: kv[1]))
+            break
+    if not anchors:
+        return [], start_idx
+
+    entries: List[dict] = []
+    cur: Optional[dict] = None
+    i, consumed = start_idx, 0
+    while i < len(lines) and i < start_idx + max_rows:
+        ws = sorted(lines[i]["words"], key=lambda w: w["x0"])
+        code_txt = "".join(w["text"] for w in ws if w["x0"] < 80).strip()
+        desc_txt = "".join(w["text"] for w in ws if 80 <= w["x0"] < 190).strip()
+        nums = [w for w in ws if w["x0"] >= 190 and _is_num(w["text"])]
+
+        if code_txt and len(nums) >= 3:              # ¹H 行：带残基编码
+            if cur:
+                entries.append(cur)
+            cur = {"code": code_txt,
+                   "iupac": desc_txt.replace("/", "→"),
+                   "positions": OrderedDict(), "row_index": i}
+            for w in nums:
+                pos = _nearest_anchor(anchors, w["x0"])
+                if pos and pos not in cur["positions"]:
+                    cur["positions"][pos] = {"H": _num(w["text"]), "C": None}
+            consumed = 0
+            i += 1
+            continue
+
+        if cur and not code_txt and len(nums) >= 3:   # ¹³C 行：紧随 ¹H 行
+            for w in nums:
+                pos = _nearest_anchor(anchors, w["x0"])
+                if pos and pos in cur["positions"] and cur["positions"][pos]["C"] is None:
+                    cur["positions"][pos]["C"] = _num(w["text"])
+            consumed = 0
+            i += 1
+            continue
+
+        consumed += 1
+        if consumed >= 4:
+            break
+        i += 1
+    if cur:
+        entries.append(cur)
+
+    out: List[dict] = []
+    for e in entries:
+        pos_out = OrderedDict((k, v) for k, v in e["positions"].items()
+                              if v["H"] is not None or v["C"] is not None)
+        if pos_out:
+            out.append({"code": e["code"], "iupac": e["iupac"],
+                        "positions": pos_out, "row_index": e["row_index"]})
+    return out, i
+
+
 # 从 IUPAC 描述提取单糖块：`α -D-Gal p A -6-OMe-(1→` → seg=Gal, ring=p, acid=A
 RE_MONO_SEG = re.compile(
     r"(?:[αβab])?\s*-?\s*[DL]?-?\s*"
@@ -505,9 +603,14 @@ def parse_mono_from_iupac(iupac: str, code: str = "",
     if not (iupac or code):
         return out
 
+    # 异头构型标记。优先希腊字母；部分 PDF 的 α/β 字形被提取成 ascii 的
+    # a/b（实测 "→4)-b-D-Galp-(1→"），若只认希腊字母会全部退化成 unknown。
+    # 这里限定"糖名前的构型位"，避免误匹配 Gal / Man 等名称里的字母。
     m = re.search(r"([αβ])", iupac)
+    if not m:
+        m = re.search(r"(?:^|[-)（(])\s*([ab])\s*-\s*[DL]\s*-", iupac, re.I)
     if m:
-        out["anomer"] = "a" if m.group(1) == "α" else "b"
+        out["anomer"] = "a" if m.group(1).lower() in ("α", "a") else "b"
 
     mp = RE_IUPAC_POS.search(iupac)
     if mp:
@@ -725,7 +828,7 @@ def _poly_summary_name(residues: List[Residue]) -> str:
 
 
 def build_record(meta: dict, kv_norm: dict, entries: List[dict],
-                 linkages: List[dict], nmr_page: int) -> GlycanRecord:
+                 linkages: List[dict], nmr_page: int) -> Optional[GlycanRecord]:
     rec = GlycanRecord()
     rec.sugar_type = "poly"
     rec.iupac_short = meta.get("polysaccharide") or kv_norm.get("name")
@@ -799,6 +902,13 @@ def build_record(meta: dict, kv_norm: dict, entries: List[dict],
     rec.qc_notes.append("table-parser: molecular table (Table-like 1)")
     rec.qc_notes.append(f"table-parser: shift table with {len(entries)} residues")
     rec.qc_status = "dry-run-ok"
+
+    # 没有任何实质数据（残基 / 位移 / 物性）时不产出记录。否则解析失败的
+    # PDF 会在报告里显示成"识别出 1 条记录"，把失败包装成成功，还可能写入
+    # 一条空结构污染数据库。
+    if not rec.residues and not any(e.peaks or e.peaks_2d for e in rec.experiments) \
+            and rec.physicochemical is None:
+        return None
     return rec
 
 
@@ -819,7 +929,12 @@ JOURNAL_PAT = re.compile(
     r"(International\s+Journal\s+of\s+Biological\s+Macromolecules"
     r"|Carbohydrate\s+Polymers|Food\s+Hydrocolloids"
     r"|Journal\s+of\s+Agricultural\s+and\s+Food\s+Chemistry"
-    r"|Food\s+Chemistry|Carbohydrate\s+Research)",
+    r"|Food\s+Chemistry|Carbohydrate\s+Research"
+    r"|Journal\s+of\s+Pharmaceutical\s+Analysis"
+    r"|International\s+Journal\s+of\s+Food\s+Science"
+    r"|Journal\s+of\s+Natural\s+Products|Phytochemistry"
+    r"|Industrial\s+Crops\s+and\s+Products|Glycobiology"
+    r"|Journal\s+of\s+Functional\s+Foods|Trends\s+in\s+Food\s+Science)",
     re.I)
 
 # 多糖名提取要排除的"非名称"词（避免 'of a polysaccharide' → 'of'）
@@ -863,12 +978,24 @@ def extract_title(pages: List[dict]) -> Optional[str]:
     rows = cluster_rows(head, dy=ROW_DY)
     if not rows:
         return None
-    cand = max(rows, key=lambda r: len(r["text"]))
-    txt = re.sub(r"\s+", " ", cand["text"]).strip()
-    if len(txt) < 25 or JOURNAL_PAT.search(txt) or re.search(
-            r"contents|elsevier|springer|wiley|volume\s+\d+|https?://|@", txt, re.I):
+    # 标题常跨 2~4 行，且与页眉期刊名同为最大字号：按 top 顺序保留正文行、
+    # 剔除页眉/页脚噪声，再拼成完整标题。旧实现只取"最长的一行"，对多行标题
+    # 会截断成半句（如 "...a novel polysaccharide with a"）。
+    parts: List[str] = []
+    for r in sorted(rows, key=lambda x: x["top"]):
+        txt = re.sub(r"\s+", " ", r["text"]).strip()
+        if not txt or JOURNAL_PAT.search(txt):
+            continue
+        if re.search(r"contents|elsevier|springer|wiley|volume\s+\d+|"
+                     r"https?://|@|received|accepted|available\s+online", txt, re.I):
+            continue
+        parts.append(txt)
+    if not parts:
         return None
-    return txt or None
+    title = " ".join(parts).strip()
+    if len(title) < 25:
+        return None
+    return title
 
 
 def extract_meta(pages: List[dict]) -> dict:
@@ -900,6 +1027,19 @@ def extract_meta(pages: List[dict]) -> dict:
             cand = m.group(1).strip()
             if cand.lower() not in _NAME_STOPWORDS:
                 meta["polysaccharide"] = cand
+    # 兜底：正文里的命名句，如 "... polysaccharide was obtained, referred to
+    # as SPR-1" / "designated as XXX"。标题只给泛称（"a novel polysaccharide"）
+    # 时，这是拿到文献内实际编号（SPR-1）的唯一线索。
+    if not meta["polysaccharide"]:
+        head_text = "\n".join(p["text"] for p in pages[:6])
+        m = re.search(
+            r"(?:referred\s+to\s+as|designated\s+as|termed|named)\s+"
+            r"([A-Z][A-Za-z]{0,5}[\s-]?\d{1,3})\b", head_text)
+        if not m:
+            m = re.search(r"polysaccharide\s*\(\s*([A-Z]{2,6}[\s-]?\d{1,3})\s*[,)]",
+                          head_text)
+        if m:
+            meta["polysaccharide"] = m.group(1).strip()
     return meta
 
 
@@ -932,16 +1072,24 @@ def run(pdf_path: str, verbose: bool = True) -> dict:
             # 有题注：往后探测是『分子量表』还是『化学位移表』
             cap_no = mcap.group(1)
             probe = " ".join(l["text"] for l in ln[idx:idx + 8])
+            # 注：位移表的表题写法多样 —— "Chemical shift assignments" /
+            # "... attribution" / "Glycosyl residues" 都属位移表，统一识别
+            is_shift = re.search(
+                r"chemical\s*shift|assignment|attribution|glycosyl\s*residue",
+                probe, re.I)
             if re.search(r"weight|composition|physicochem|physical", probe, re.I) \
-                    and not re.search(r"chemical shift|attribution|residu", probe, re.I):
+                    and not is_shift:
                 kv, ni = parse_molecular_kv_table(page, idx + 1)
                 if kv:
                     kvcaption.append(f"Table {cap_no}")
                     kv_page = page["page"]
                     kv_all.update(kv)
-            elif re.search(r"chemical shift|attribution|C\s*chemical|residu",
-                           probe, re.I):
+            elif is_shift:
+                # 两种常见版式：位置数字表头（1 2 3 4 5 6a/6b -OMe）与
+                # H/C 成对表头（H1/C1 H2/C2 ...），依次尝试
                 ents, ni = parse_shift_table(page, idx + 1, max_rows=90)
+                if not ents:
+                    ents, ni = parse_hc_shift_table(page, idx + 1, max_rows=140)
                 if ents:
                     shiftcaption.append(f"Table {cap_no}")
                     nmr_page = page["page"]
@@ -956,12 +1104,12 @@ def run(pdf_path: str, verbose: bool = True) -> dict:
     kv_norm["name"] = meta.get("polysaccharide") or "unknown polysaccharide"
     rec = build_record(meta, kv_norm, entries_all, linkages, nmr_page)
 
-    # 计算位移条数
-    n_shifts = sum(len(e.peaks) for e in rec.experiments)
+    # 计算位移条数（rec 为 None 表示本次没解析出实质数据）
+    n_shifts = sum(len(e.peaks) for e in rec.experiments) if rec else 0
     stats = {
         "pages": pages[0]["n_pages"],
-        "n_polysaccharide_records": 1 if rec.residues or kv_norm else 0,
-        "n_residues": len(rec.residues),
+        "n_polysaccharide_records": 1 if rec else 0,
+        "n_residues": len(rec.residues) if rec else 0,
         "n_shifts": n_shifts,
         "n_linkages": len(linkages),
         "n_kv_rows": len(kv_all),
@@ -982,7 +1130,7 @@ def run(pdf_path: str, verbose: bool = True) -> dict:
         "meta": meta,
         "stats": stats,
         "molecular_table": kv_norm,
-        "records": [asdict(rec)],
+        "records": [asdict(rec)] if rec else [],
         "linkages": linkages,
     }
     if verbose:
